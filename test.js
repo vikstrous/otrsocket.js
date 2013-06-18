@@ -11,12 +11,12 @@ describe('OTRSocketServer', function() {
       this.server.listen(done);
     });
     it('should be able to register connection handlers', function() {
-      var cb = function (){};
+      var cb = function() {};
       this.server.on('connection', cb);
       this.server.off('connection', cb);
     });
     it('should be able to hear a manually triggered connection', function(done) {
-      var cb = function (conn) {
+      var cb = function(conn) {
         expect(conn).to.be.an(OTRSocket);
         done();
       }.bind(this);
@@ -25,7 +25,7 @@ describe('OTRSocketServer', function() {
       this.server.off('connection', cb);
     });
     it('should be able to hear a connection (live test)', function(done) {
-      var cb = function (conn) {
+      var cb = function(conn) {
         expect(conn).to.be.an(OTRSocket);
         this.server.off('connection', cb);
         done();
@@ -34,7 +34,7 @@ describe('OTRSocketServer', function() {
       var client = new OTRSocket('127.0.0.1', 8088);
       client.connect(function(err) {
         expect(err).to.be(undefined);
-        client.send('derp', 'test', function(err){
+        client.send('derp', 'test', function(err) {
           expect(err).to.be(undefined);
           client.disconnect();
         });
@@ -56,17 +56,17 @@ describe('OTRSocket', function() {
       this.client = new OTRSocket('127.0.0.1', 8089);
     });
     it('should be able to connect and disconnect', function(done) {
-      this.client.connect(function(err){
+      this.client.connect(function(err) {
         expect(err).to.be(undefined);
         this.client.disconnect();
         done();
       }.bind(this));
     });
     it('should be able to connect and disconnect twice fast', function(done) {
-      this.client.connect(function(err){
+      this.client.connect(function(err) {
         expect(err).to.be(undefined);
         this.client.disconnect();
-        this.client.connect(function(err){
+        this.client.connect(function(err) {
           expect(err).to.be(undefined);
           this.client.disconnect();
           done();
@@ -74,13 +74,13 @@ describe('OTRSocket', function() {
       }.bind(this));
     });
     it('should know when it\'s connected', function(done) {
-      this.client.connect(function(err){
+      this.client.connect(function(err) {
         expect(err).to.be(undefined);
-        this.client.info(function(err, res){
+        this.client.info(function(err, res) {
           expect(res.socketType).to.be('tcp');
           expect(res.connected).to.be(true);
           this.client.disconnect();
-          this.client.info(function(err, res){
+          this.client.info(function(err, res) {
             expect(res.socketType).to.be('tcp');
             expect(res.connected).to.be(false);
             done();
@@ -89,22 +89,22 @@ describe('OTRSocket', function() {
       }.bind(this));
     });
     it('should know when it\'s connected twice fast', function(done) {
-      this.client.connect(function(err){
+      this.client.connect(function(err) {
         expect(err).to.be(undefined);
-        this.client.info(function(err, res){
+        this.client.info(function(err, res) {
           expect(res.socketType).to.be('tcp');
           expect(res.connected).to.be(true);
           this.client.disconnect();
-          this.client.info(function(err, res){
+          this.client.info(function(err, res) {
             expect(res.socketType).to.be('tcp');
             expect(res.connected).to.be(false);
-            this.client.connect(function(err){
+            this.client.connect(function(err) {
               expect(err).to.be(undefined);
-              this.client.info(function(err, res){
+              this.client.info(function(err, res) {
                 expect(res.socketType).to.be('tcp');
                 expect(res.connected).to.be(true);
                 this.client.disconnect();
-                this.client.info(function(err, res){
+                this.client.info(function(err, res) {
                   expect(res.socketType).to.be('tcp');
                   expect(res.connected).to.be(false);
                   done();
@@ -117,24 +117,24 @@ describe('OTRSocket', function() {
     });
     it('should be able to connect (live)', function(done) {
       this.server.stop();
-      this.server.listen(function(err){
+      this.server.listen(function(err) {
         expect(err).to.be(undefined);
-        this.server.on('connection', function(conn){
+        this.server.on('connection', function(conn) {
           expect(conn).to.be.an(OTRSocket);
           done();
         });
         this.client.disconnect();
-        this.client.connect(function(err){
+        this.client.connect(function(err) {
           expect(err).to.be(undefined);
           this.client.disconnect();
         }.bind(this));
       }.bind(this));
     });
-    it('should be able to send', function(done){
+    it('should be able to send', function(done) {
       this.server.stop();
-      this.server.listen(function(err){
-        var cb2 = function(conn){
-          var cb = function(data){
+      this.server.listen(function(err) {
+        var cb2 = function(conn) {
+          var cb = function(data) {
             expect(data).to.be('test');
             conn.off('derp', cb);
             done();
@@ -144,28 +144,28 @@ describe('OTRSocket', function() {
         };
         this.server.on('connection', cb2);
         this.client.disconnect();
-        this.client.connect(function(err){
+        this.client.connect(function(err) {
           expect(err).to.be(undefined);
-          this.client.send('derp', 'test', function(err){
+          this.client.send('derp', 'test', function(err) {
             expect(err).to.be(undefined);
             this.client.disconnect();
           }.bind(this));
         }.bind(this));
       }.bind(this));
     });
-    it('should be able to receive', function(done){
+    it('should be able to receive', function(done) {
       this.server.stop();
-      this.server.listen(function(err){
-        var cb = function(conn){
+      this.server.listen(function(err) {
+        var cb = function(conn) {
           console.log("send");
           conn.send('derp', 'test');
           conn.off('connection', cb);
         };
         this.server.on('connection', cb);
         this.client.disconnect();
-        this.client.connect(function(err){
+        this.client.connect(function(err) {
           expect(err).to.be(undefined);
-          this.client.on('derp', function(data){
+          this.client.on('derp', function(data) {
             expect(data).to.be('test');
             done();
           });
