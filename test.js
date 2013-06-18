@@ -133,18 +133,42 @@ describe('OTRSocket', function() {
     it('should be able to send', function(done){
       this.server.stop();
       this.server.listen(function(err){
-        this.server.on('connection', function(conn){
-          conn.on('derp', function(data){
+        var cb2 = function(conn){
+          var cb = function(data){
             expect(data).to.be('test');
+            conn.off('derp', cb);
             done();
-          });
-        });
+          };
+          conn.on('derp', cb);
+          conn.off('connection', cb2);
+        };
+        this.server.on('connection', cb2);
+        this.client.disconnect();
         this.client.connect(function(err){
           expect(err).to.be(undefined);
           this.client.send('derp', 'test', function(err){
             expect(err).to.be(undefined);
             this.client.disconnect();
           }.bind(this));
+        }.bind(this));
+      }.bind(this));
+    });
+    it('should be able to receive', function(done){
+      this.server.stop();
+      this.server.listen(function(err){
+        var cb = function(conn){
+          console.log("send");
+          conn.send('derp', 'test');
+          conn.off('connection', cb);
+        };
+        this.server.on('connection', cb);
+        this.client.disconnect();
+        this.client.connect(function(err){
+          expect(err).to.be(undefined);
+          this.client.on('derp', function(data){
+            expect(data).to.be('test');
+            done();
+          });
         }.bind(this));
       }.bind(this));
     });

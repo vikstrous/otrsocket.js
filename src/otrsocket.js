@@ -819,7 +819,8 @@ OTRSocket.prototype.send = function(method, obj, callback) { //callback not impl
     payload: obj
   }) + '\n', function(msg) {
     chrome.socket.write(this.socketId, msg, function(res) {
-      callback(res.bytesWritten > 0 ? undefined : new Error('send failed: ' + util.errorName(res.bytesWritten)), res.bytesWritten);
+      console.log(res);
+      if (typeof callback === 'function') callback(res.bytesWritten > 0 ? undefined : new Error('send failed: ' + util.errorName(res.bytesWritten)), res.bytesWritten);
     }.bind(this));
   }.bind(this));
 };
