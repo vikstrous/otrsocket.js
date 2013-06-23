@@ -16,6 +16,10 @@ var util = {
   }
 };
 
+function debug(){
+  // console.log(arguments);
+}
+
 // chromium/src/net/base/net_error_list.h;
 (function() {
   function NET_ERROR(str, code) {
@@ -730,9 +734,12 @@ function OTRSocketServer(ip, port) {
 util.inherits(OTRSocketServer, EventEmitter);
 
 OTRSocketServer.prototype.listen = function(cb) {
+  debug('create server socket');
   chrome.socket.create('tcp', null, function(createInfo) {
     this.socketId = createInfo.socketId;
+    debug('created server '+this.socketId);
     if (this.socketId < 0 && typeof cb === 'function') cb(new Error('socketId < 0'));
+    debug('listen server');
     chrome.socket.listen(this.socketId, this.ip, this.port, function(resultCode) {
       if (typeof cb === 'function') {
         if (resultCode === 0)
@@ -740,19 +747,36 @@ OTRSocketServer.prototype.listen = function(cb) {
         else
           cb(new Error('socket.listen returned ' + util.errorName(resultCode)));
       }
-      chrome.socket.accept(this.socketId, function(acceptInfo) {
+      debug('accept server');
+      var accept = function(acceptInfo) {
+        debug(acceptInfo, 'accepted server');
+        debug(this.socketId, 'server socket');
         if (acceptInfo.resultCode === 0) {
           chrome.socket.getInfo(acceptInfo.socketId, function(res) {
-            this.emit('connection', new OTRSocket(res.peerAddress, res.peerPort, true, acceptInfo.socketId));
+            debug(res, "info");
+            debug(res.peerAddress, res.peerPort, "info");
+            if(res.peerAddress){
+              this.emit('connection', new OTRSocket(res.peerAddress, res.peerPort, true, acceptInfo.socketId));
+            }
           }.bind(this));
+          if(this.socketId) // because the server might have been stopped already
+            chrome.socket.accept(this.socketId, accept);
+        } else {
+          debug(acceptInfo, "failed to accept");
+          this._listener_bound = false;
         }
-      }.bind(this));
+      }.bind(this);
+      chrome.socket.accept(this.socketId, accept);
+      this._listener_bound = true;
     }.bind(this));
   }.bind(this));
 };
 
 OTRSocketServer.prototype.stop = function() {
+  debug('destroy server ' + this.socketId);
   chrome.socket.destroy(this.socketId);
+  this.removeEvent('connection');
+  delete this.socketId;
 };
 
 
@@ -760,8 +784,10 @@ var OTRSocket = function(ip, port, server, socketId) {
   this.ip = ip;
   this.port = port;
   this._buffers = [];
+  this._server = server;
   if (server) {
     this.socketId = socketId;
+    debug('read server');
     chrome.socket.read(this.socketId, null, this._receiveCb.bind(this));
   }
 };
@@ -770,16 +796,23 @@ util.inherits(OTRSocket, EventEmitter);
 
 
 OTRSocket.prototype.info = function(cb) {
-  chrome.socket.getInfo(this.socketId, function(res) {
-    if (typeof cb === 'function') cb(undefined, res);
-  });
+  if(this.socketId){
+    chrome.socket.getInfo(this.socketId, function(res) {
+      if (typeof cb === 'function') cb(undefined, res);
+    });
+  } else {
+    if (typeof cb === 'function') cb('No socket'); // TODO: better error messages?
+  }
 };
 
 OTRSocket.prototype._connectStage2 = function(cb) {
   this.info(function(err, res) {
     if (!res.connected) {
+      debug('connect client');
       chrome.socket.connect(this.socketId, this.ip, this.port, function(resultCode) {
-        chrome.socket.read(this.socketId, null, this._receiveCb.bind(this));
+        debug(resultCode, 'stage2 - connected');
+          debug("client read");
+          chrome.socket.read(this.socketId, null, this._receiveCb.bind(this));
         if (typeof cb === 'function') {
           if (resultCode !== 0) {
             cb(new Error('socket.connect returned ' + util.errorName(resultCode)));
@@ -796,8 +829,10 @@ OTRSocket.prototype._connectStage2 = function(cb) {
 
 OTRSocket.prototype.connect = function(cb) {
   if (this.socketId >= 0) {
+    debug('connect an existing socket');
     this._connectStage2(cb);
   } else {
+    debug('create client');
     chrome.socket.create('tcp', null, function(createInfo) {
       this.socketId = createInfo.socketId;
       if (this.socketId < 0 && typeof cb === 'function') cb(new Error('socketId < 0'));
@@ -807,11 +842,19 @@ OTRSocket.prototype.connect = function(cb) {
 };
 
 OTRSocket.prototype.destroy = function() {
-  chrome.socket.destroy(this.socketId);
+  if (this.socketId !== undefined) {
+    debug('destroy '+(this._server?'server':'client'));
+    chrome.socket.destroy(this.socketId);
+    delete this.socketId;
+  }
 };
 
 OTRSocket.prototype.disconnect = function() {
-  chrome.socket.disconnect(this.socketId);
+  if (this.socketId !== undefined) {
+    debug("disconnect "+(this._server?'server':'client'));
+    chrome.socket.disconnect(this.socketId);
+    this.destroy(); // TODO: Remove this when this is fixed: https://code.google.com/p/chromium/issues/detail?id=251977&thanks=251977&ts=1371681444
+  }
 };
 
 //TODO: add a newline more efficiently
@@ -821,17 +864,23 @@ OTRSocket.prototype.send = function(method, obj, callback) { //callback not impl
     payload: obj
   }) + '\n', function(msg) {
     chrome.socket.write(this.socketId, msg, function(res) {
-      console.log(res);
+      debug(res);
       if (typeof callback === 'function') callback(res.bytesWritten > 0 ? undefined : new Error('send failed: ' + util.errorName(res.bytesWritten)), res.bytesWritten);
     }.bind(this));
   }.bind(this));
 };
 
 OTRSocket.prototype._receiveCb = function(readInfo) {
-  console.log(readInfo, "receive");
+  debug(readInfo, "receive " + (this._server?'server':'client'));
+  if (readInfo.resultCode === -1) {
+    debug("BINDING TOO MUCH");
+    return;
+  }
   if (readInfo.resultCode <= 0) {
-    //TODO: deal with negative result codes
-    // chrome.socket.disconnect(this.socketId);
+    debug(this.ip, this.port, "info");
+    debug(util.errorName(readInfo.resultCode), "error");
+    //TODO: deal with negative result codes more specifically
+    this.disconnect();
   } else {
     if (this._finalBuff(readInfo.data)) {
       var total_length = readInfo.data.byteLength;
@@ -847,12 +896,15 @@ OTRSocket.prototype._receiveCb = function(readInfo) {
       this._memcpyWhole(arr, length_covered, readInfo.data);
       this._arrayBufferToString(arr, function(data) {
         // TODO: handle protocol error
-        this._receive(JSON.parse(data));
+        try {
+          this._receive(JSON.parse(data));
+        } catch(e) {debug("Failed to parse: ", data);}
       }.bind(this));
       this._buffers = [];
     } else {
       this._buffers.push(readInfo.data);
     }
+    debug('read again');
     chrome.socket.read(this.socketId, null, this._receiveCb.bind(this));
   }
 };

@@ -1,5 +1,8 @@
 mocha.setup('bdd');
 
+function debug(){
+  // console.log(arguments);
+}
 
 describe('OTRSocketServer', function() {
   describe('works', function() {
@@ -37,6 +40,7 @@ describe('OTRSocketServer', function() {
         client.send('derp', 'test', function(err) {
           expect(err).to.be(undefined);
           client.disconnect();
+          client.destroy();
         });
       });
     });
@@ -56,6 +60,7 @@ describe('OTRSocket', function() {
       this.client = new OTRSocket('127.0.0.1', 8089);
     });
     it('should be able to connect and disconnect', function(done) {
+      debug('test 1');
       this.client.connect(function(err) {
         expect(err).to.be(undefined);
         this.client.disconnect();
@@ -63,6 +68,7 @@ describe('OTRSocket', function() {
       }.bind(this));
     });
     it('should be able to connect and disconnect twice fast', function(done) {
+      debug('test 2');
       this.client.connect(function(err) {
         expect(err).to.be(undefined);
         this.client.disconnect();
@@ -74,6 +80,7 @@ describe('OTRSocket', function() {
       }.bind(this));
     });
     it('should know when it\'s connected', function(done) {
+      debug('test 3');
       this.client.connect(function(err) {
         expect(err).to.be(undefined);
         this.client.info(function(err, res) {
@@ -81,14 +88,14 @@ describe('OTRSocket', function() {
           expect(res.connected).to.be(true);
           this.client.disconnect();
           this.client.info(function(err, res) {
-            expect(res.socketType).to.be('tcp');
-            expect(res.connected).to.be(false);
+            expect(err).to.be('No socket');//TODO: ideally, there will be a socket after disconnecting, but because of a chromium error, we can't reuse sockets
             done();
           }.bind(this));
         }.bind(this));
       }.bind(this));
     });
     it('should know when it\'s connected twice fast', function(done) {
+      debug('test 4');
       this.client.connect(function(err) {
         expect(err).to.be(undefined);
         this.client.info(function(err, res) {
@@ -96,8 +103,7 @@ describe('OTRSocket', function() {
           expect(res.connected).to.be(true);
           this.client.disconnect();
           this.client.info(function(err, res) {
-            expect(res.socketType).to.be('tcp');
-            expect(res.connected).to.be(false);
+            expect(err).to.be('No socket'); //TODO: ideally, there will be a socket after disconnecting, but because of a chromium error, we can't reuse sockets
             this.client.connect(function(err) {
               expect(err).to.be(undefined);
               this.client.info(function(err, res) {
@@ -105,8 +111,7 @@ describe('OTRSocket', function() {
                 expect(res.connected).to.be(true);
                 this.client.disconnect();
                 this.client.info(function(err, res) {
-                  expect(res.socketType).to.be('tcp');
-                  expect(res.connected).to.be(false);
+                  expect(err).to.be('No socket');//TODO: ideally, there will be a socket after disconnecting, but because of a chromium error, we can't reuse sockets
                   done();
                 }.bind(this));
               }.bind(this));
@@ -116,21 +121,24 @@ describe('OTRSocket', function() {
       }.bind(this));
     });
     it('should be able to connect (live)', function(done) {
+      debug('test 5');
       this.server.stop();
       this.server.listen(function(err) {
         expect(err).to.be(undefined);
         this.server.on('connection', function(conn) {
           expect(conn).to.be.an(OTRSocket);
+          this.client.disconnect();
           done();
-        });
+        }.bind(this));
         this.client.disconnect();
         this.client.connect(function(err) {
           expect(err).to.be(undefined);
-          this.client.disconnect();
+          // if we disconnect here, it will never create the connection
         }.bind(this));
       }.bind(this));
     });
     it('should be able to send', function(done) {
+      debug('test 6');
       this.server.stop();
       this.server.listen(function(err) {
         var cb2 = function(conn) {
@@ -154,15 +162,22 @@ describe('OTRSocket', function() {
       }.bind(this));
     });
     it('should be able to receive', function(done) {
+      debug('test 7');
+
+      this.client.connect(function(err) {
+        expect(err).to.be(undefined);
+        this.client.disconnect();
       this.server.stop();
       this.server.listen(function(err) {
+        expect(err).to.be(undefined);
         var cb = function(conn) {
-          console.log("send");
+          debug("send WRONG");
           conn.send('derp', 'test');
           conn.off('connection', cb);
         };
         this.server.on('connection', cb);
-        this.client.disconnect();
+
+        // this.client.disconnect();
         this.client.connect(function(err) {
           expect(err).to.be(undefined);
           this.client.on('derp', function(data) {
@@ -170,8 +185,11 @@ describe('OTRSocket', function() {
             done();
           });
         }.bind(this));
+      }.bind(this), function(){debug(2);});
+
       }.bind(this));
     });
+
     after(function() {
       this.client.destroy();
       this.server.stop();
