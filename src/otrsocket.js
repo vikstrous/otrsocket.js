@@ -720,12 +720,6 @@ function debug() {
   NET_ERROR('DNS_SORT_ERROR', -806);
 })();
 
-//TODO: 
-// error handling - check all the error codes
-// make constructors not take callbacks?
-
-//TODO: error check all the things
-
 function OTRSocketServer(ip, port) {
   this.ip = ip;
   this.port = port;
