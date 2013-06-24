@@ -177,8 +177,6 @@ describe('OTRSocket', function() {
             conn.off('connection', cb);
           };
           this.server.on('connection', cb);
-
-          // this.client.disconnect();
           this.client.connect(function(err) {
             expect(err).to.be(undefined);
             this.client.on('derp', function(data) {
