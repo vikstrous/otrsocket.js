@@ -4,11 +4,11 @@ function debug() {
   // console.log(arguments);
 }
 
-describe('OTRSocketServer', function() {
+describe('SocketServer', function() {
   describe('works', function() {
     it('should be possible to create one', function() {
-      this.server = new OTRSocketServer('127.0.0.1', 8088);
-      expect(this.server).to.be.a(OTRSocketServer);
+      this.server = new SocketServer('127.0.0.1', 8088);
+      expect(this.server).to.be.a(SocketServer);
     });
     it('should be able to listen', function(done) {
       this.server.listen(done);
@@ -20,21 +20,21 @@ describe('OTRSocketServer', function() {
     });
     it('should be able to hear a manually triggered connection', function(done) {
       var cb = function(conn) {
-        expect(conn).to.be.an(OTRSocket);
+        expect(conn).to.be.an(Socket);
         done();
       }.bind(this);
       this.server.on('connection', cb);
-      this.server.emit('connection', new OTRSocket());
+      this.server.emit('connection', new Socket());
       this.server.off('connection', cb);
     });
     it('should be able to hear a connection (live test)', function(done) {
       var cb = function(conn) {
-        expect(conn).to.be.an(OTRSocket);
+        expect(conn).to.be.an(Socket);
         this.server.off('connection', cb);
         done();
       }.bind(this);
       this.server.on('connection', cb);
-      var client = new OTRSocket('127.0.0.1', 8088);
+      var client = new Socket('127.0.0.1', 8088);
       client.connect(function(err) {
         expect(err).to.be(undefined);
         client.send('derp', 'test', function(err) {
@@ -50,14 +50,14 @@ describe('OTRSocketServer', function() {
   });
 });
 
-describe('OTRSocket', function() {
+describe('Socket', function() {
   describe('works', function() {
     before(function(done) {
-      this.server = new OTRSocketServer('127.0.0.1', 8089);
+      this.server = new SocketServer('127.0.0.1', 8089);
       this.server.listen(done);
     });
     it('should be possible to create one', function() {
-      this.client = new OTRSocket('127.0.0.1', 8089);
+      this.client = new Socket('127.0.0.1', 8089);
     });
     it('should be able to connect and disconnect', function(done) {
       debug('test 1');
@@ -126,7 +126,7 @@ describe('OTRSocket', function() {
       this.server.listen(function(err) {
         expect(err).to.be(undefined);
         this.server.on('connection', function(conn) {
-          expect(conn).to.be.an(OTRSocket);
+          expect(conn).to.be.an(Socket);
           this.client.disconnect();
           done();
         }.bind(this));
