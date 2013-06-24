@@ -171,7 +171,7 @@ describe('OTRSocket', function() {
       this.server.listen(function(err) {
         expect(err).to.be(undefined);
         var cb = function(conn) {
-          debug("send WRONG");
+          debug("send");
           conn.send('derp', 'test');
           conn.off('connection', cb);
         };
