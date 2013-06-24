@@ -769,7 +769,7 @@ SocketServer.prototype.listen = function(cb) {
 SocketServer.prototype.stop = function() {
   debug('destroy server ' + this.socketId);
   chrome.socket.destroy(this.socketId);
-  this.removeEvent('connection');
+  // this.removeEvent('connection');
   delete this.socketId;
 };
 
