@@ -1,6 +1,6 @@
 mocha.setup('bdd');
 
-function debug(){
+function debug() {
   // console.log(arguments);
 }
 
@@ -88,7 +88,7 @@ describe('OTRSocket', function() {
           expect(res.connected).to.be(true);
           this.client.disconnect();
           this.client.info(function(err, res) {
-            expect(err).to.be('No socket');//TODO: ideally, there will be a socket after disconnecting, but because of a chromium error, we can't reuse sockets
+            expect(err).to.be('No socket'); //TODO: ideally, there will be a socket after disconnecting, but because of a chromium error, we can't reuse sockets
             done();
           }.bind(this));
         }.bind(this));
@@ -111,7 +111,7 @@ describe('OTRSocket', function() {
                 expect(res.connected).to.be(true);
                 this.client.disconnect();
                 this.client.info(function(err, res) {
-                  expect(err).to.be('No socket');//TODO: ideally, there will be a socket after disconnecting, but because of a chromium error, we can't reuse sockets
+                  expect(err).to.be('No socket'); //TODO: ideally, there will be a socket after disconnecting, but because of a chromium error, we can't reuse sockets
                   done();
                 }.bind(this));
               }.bind(this));
@@ -186,7 +186,9 @@ describe('OTRSocket', function() {
               done();
             });
           }.bind(this));
-        }.bind(this), function(){debug(2);});
+        }.bind(this), function() {
+          debug(2);
+        });
       }.bind(this));
     });
 
