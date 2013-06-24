@@ -167,26 +167,26 @@ describe('OTRSocket', function() {
       this.client.connect(function(err) {
         expect(err).to.be(undefined);
         this.client.disconnect();
-      this.server.stop();
-      this.server.listen(function(err) {
-        expect(err).to.be(undefined);
-        var cb = function(conn) {
-          debug("send");
-          conn.send('derp', 'test');
-          conn.off('connection', cb);
-        };
-        this.server.on('connection', cb);
 
-        // this.client.disconnect();
-        this.client.connect(function(err) {
+        this.server.stop();
+        this.server.listen(function(err) {
           expect(err).to.be(undefined);
-          this.client.on('derp', function(data) {
-            expect(data).to.be('test');
-            done();
-          });
-        }.bind(this));
-      }.bind(this), function(){debug(2);});
+          var cb = function(conn) {
+            debug("send");
+            conn.send('derp', 'test');
+            conn.off('connection', cb);
+          };
+          this.server.on('connection', cb);
 
+          // this.client.disconnect();
+          this.client.connect(function(err) {
+            expect(err).to.be(undefined);
+            this.client.on('derp', function(data) {
+              expect(data).to.be('test');
+              done();
+            });
+          }.bind(this));
+        }.bind(this), function(){debug(2);});
       }.bind(this));
     });
 
