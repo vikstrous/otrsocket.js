@@ -17,7 +17,7 @@ var util = {
 };
 
 function debug() {
-  // console.log(arguments);
+  console.log(arguments);
 }
 
 // chromium/src/net/base/net_error_list.h;
@@ -802,7 +802,7 @@ Socket.prototype.info = function(cb) {
 Socket.prototype._connectStage2 = function(cb) {
   this.info(function(err, res) {
     if (!res.connected) {
-      debug('connect client');
+      debug('connect client to ' + this.ip + ':' + this.port);
       chrome.socket.connect(this.socketId, this.ip, this.port, function(resultCode) {
         debug(resultCode, 'stage2 - connected');
         debug("client read");
@@ -891,10 +891,11 @@ Socket.prototype._receiveCb = function(readInfo) {
       this._arrayBufferToString(arr, function(data) {
         // TODO: handle protocol error
         try {
-          this._receive(JSON.parse(data));
+          data = JSON.parse(data);
         } catch (e) {
           debug("Failed to parse: ", data);
         }
+        this._receive(data);
       }.bind(this));
       this._buffers = [];
     } else {

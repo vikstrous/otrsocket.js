@@ -7,7 +7,7 @@
       "scripts": ["background.js"]
     }
   },
-  "permissions": [{
+  "permissions": ["storage",{
     "socket": [
       "tcp-connect", "tcp-listen"
     ]

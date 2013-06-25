@@ -1,7 +1,7 @@
 mocha.setup('bdd');
 
 function debug() {
-  // console.log(arguments);
+  console.log(arguments);
 }
 
 describe('SocketServer', function() {
@@ -145,18 +145,18 @@ describe('Socket', function() {
           var cb = function(data) {
             expect(data).to.be('test');
             conn.off('derp', cb);
+            this.client.disconnect();
             done();
-          };
+          }.bind(this);
           conn.on('derp', cb);
           conn.off('connection', cb2);
-        };
+        }.bind(this);
         this.server.on('connection', cb2);
         this.client.disconnect();
         this.client.connect(function(err) {
           expect(err).to.be(undefined);
           this.client.send('derp', 'test', function(err) {
             expect(err).to.be(undefined);
-            this.client.disconnect();
           }.bind(this));
         }.bind(this));
       }.bind(this));
@@ -164,9 +164,9 @@ describe('Socket', function() {
     it('should be able to receive', function(done) {
       debug('test 7');
 
-      this.client.connect(function(err) {
-        expect(err).to.be(undefined);
-        this.client.disconnect();
+      // this.client.connect(function(err) {
+      //   expect(err).to.be(undefined);
+      //   this.client.disconnect();
 
         this.server.stop();
         this.server.listen(function(err) {
@@ -187,7 +187,7 @@ describe('Socket', function() {
         }.bind(this), function() {
           debug(2);
         });
-      }.bind(this));
+      // }.bind(this));
     });
 
     after(function() {
@@ -197,6 +197,76 @@ describe('Socket', function() {
   });
 });
 
+
+describe('OTRSocketServer', function() {
+  describe('works', function() {
+    before(function(done){
+      // speed up testing:
+      chrome.storage.local.get('dsaKey', function(data) {
+        if (data['dsaKey']) {
+          this.myKey = DSA.parsePrivate(data['dsaKey']);
+        } else {
+          this.myKey = new DSA();
+          var data2 = {};
+          data2['dsaKey'] = this.myKey.packPrivate();
+          chrome.storage.local.set(data2, function() {console.log(arguments);});
+        }
+        done();
+      }.bind(this));
+    });
+    it('should be possible to create one', function() {
+      this.server = new OTRSocketServer('127.0.0.1', 8089, this.myKey);
+    });
+    it('should be able to listen', function(done){
+      this.server.listen(function(res){
+        expect(res).to.be(undefined);
+        done();
+      });
+    });
+    it('should be able to stop', function(){
+      this.server.stop();
+    });
+  });
+});
+
+describe('OTRSocket', function() {
+  describe('works', function() {
+    before(function(done){
+      // speed up testing:
+      chrome.storage.local.get('dsaKey', function(data) {
+        if (data['dsaKey']) {
+          this.myKey = DSA.parsePrivate(data['dsaKey']);
+        } else {
+          this.myKey = new DSA();
+          var data2 = {};
+          data2['dsaKey'] = this.myKey.packPrivate();
+          chrome.storage.local.set(data2, function() {console.log(arguments);});
+        }
+        this.server = new OTRSocketServer('127.0.0.1', 8089, this.myKey);
+        this.server.listen(function(res){
+          expect(res).to.be(undefined);
+          done();
+        });
+      }.bind(this));
+    });
+    it('should be possible to create one', function() {
+      this.client = new OTRSocket('127.0.0.1', 8089, this.myKey);
+      console.log(this.client);
+    });
+    it('should be able to connect', function(done) {
+      this.server.on('connection', function(){
+        debug(arguments, 'weeeeeee');
+      });
+      this.client.connect(function(res){
+        expect(res).to.be(undefined);
+        done();
+      });
+    });
+    it('should be able to send', function() {
+      this.client.send("hello");
+    });
+  });
+});
 
 mocha.checkLeaks();
 mocha.globals(['jQuery']);
