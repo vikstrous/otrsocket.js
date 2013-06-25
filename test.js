@@ -125,11 +125,13 @@ describe('Socket', function() {
       this.server.stop();
       this.server.listen(function(err) {
         expect(err).to.be(undefined);
-        this.server.on('connection', function(conn) {
+        var cb = function(conn) {
           expect(conn).to.be.an(Socket);
           this.client.disconnect();
+          this.server.off('connection', cb);
           done();
-        }.bind(this));
+        }.bind(this);
+        this.server.on('connection', cb);
         this.client.disconnect();
         this.client.connect(function(err) {
           expect(err).to.be(undefined);
