@@ -20,9 +20,36 @@ function debug() {
   console.log(arguments);
 }
 
-function OTRUser(myKey) {}
+function OTRUser(host, port, myKey) {
+  if (!myKey) this.myKey = new DSA();
+  else if (typeof myKey === 'string') this.myKey = DSA.parsePrivate(myKey);
+  else this.myKey = myKey;
+  this.server = new OTRSocketServer(host, port, this.myKey);
+  this.server.on('connection', this.onconnection.bind(this));
+  this.friends = [];
+  this.friends_by_key = {};
+}
 
-OTRUser.prototype.addFriend = function() {};
+util.inherits(OTRUser, EventEmitter);
+
+OTRUser.prototype.onconnection = function(otr_socket) {
+  this.emit('connection', otr_socket);
+};
+
+OTRUser.prototype.listen = function(cb) {
+  this.server.listen(cb);
+};
+
+OTRUser.prototype.addFriend = function(host, port, key) {
+  var id = this.friends.length;
+  this.friends.push({
+    host: host,
+    port: port,
+    key: key,
+    socket: new OTRSocket(host, port, this.myKey)
+  });
+  this.friends_by_key[key] = id;
+};
 
 
 function OTRSocketServer(host, port, myKey) {
@@ -86,11 +113,11 @@ function OTRSocket(host, port, myKey, server, socket) {
 
 util.inherits(OTRSocket, EventEmitter);
 
-OTRSocket.prototype.send = function(msg, cb) {
+OTRSocket.prototype.send = function(msg) {
   this.buddy.sendMsg(msg);
 };
 
-OTRSocket.prototype.disconnect = function(){
+OTRSocket.prototype.disconnect = function() {
   this.socket.disconnect();
 };
 

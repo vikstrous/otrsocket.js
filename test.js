@@ -350,6 +350,49 @@ describe('OTRSocket', function() {
 
 describe('OTRUser', function() {
   describe('works', function() {
+    before(function(done){
+      // speed up testing:
+      chrome.storage.local.get('dsaKey', function(data) {
+        if (data['dsaKey']) {
+          this.myKey = DSA.parsePrivate(data['dsaKey']);
+        } else {
+          this.myKey = new DSA();
+          var data2 = {};
+          data2['dsaKey'] = this.myKey.packPrivate();
+          chrome.storage.local.set(data2, function() {console.log(arguments);});
+        }
+        done();
+      }.bind(this));
+    });
+    it('should handle one user', function(done){
+      this.user = new OTRUser('127.0.0.1', 34564, this.myKey);
+      this.user.listen(function(res){
+        expect(res).to.be(undefined);
+        done();
+      }.bind(this));
+    });
+    it('should be able to add a friend', function(done){
+      this.other_user = new OTRUser('127.0.0.1', 34565, this.myKey);
+      this.other_user.listen(function(res){
+        expect(res).to.be(undefined);
+        this.other_user.addFriend('127.0.0.1', 34564, this.myKey);
+        done();
+      }.bind(this));
+    });
+    it('should be able to say hello', function(done){
+      this.user.on('connection', function(otr_socket){
+        expect(otr_socket).to.be.a(OTRSocket);
+        console.log("ZzZZZZZ");
+        otr_socket.on('msg', function(msg){
+          expect(msg).to.be('hi');
+          console.log("SUCCESS");
+          done();
+        });
+      }.bind(this));
+      this.other_user.friends[0].socket.connect(function(){
+        this.other_user.friends[0].socket.send('hi');
+      }.bind(this));
+    });
   });
 });
 

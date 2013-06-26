@@ -853,7 +853,10 @@ Socket.prototype.disconnect = function() {
 
 //TODO: add a newline more efficiently
 Socket.prototype.send = function(method, obj, callback) { //callback not implemented yet; request/response matching needed
-  if(this.socketId === undefined){ if(typeof callback ==='function') callback(); return;}
+  if (this.socketId === undefined) {
+    if (typeof callback === 'function') callback();
+    return;
+  }
   this._stringToArrayBuffer(JSON.stringify({
     method: method,
     payload: obj
@@ -877,8 +880,11 @@ Socket.prototype._receiveCb = function(readInfo) {
     //TODO: deal with negative result codes more specifically
     this.disconnect();
   } else {
-    if (this._finalBuff(readInfo.data)) {
-      var total_length = readInfo.data.byteLength;
+    var index = this._endOfMsg(readInfo.data);
+    if (index !== -1) {
+      console.log(index);
+      console.log(readInfo.data.byteLength);
+      var total_length = index;
       for (var i = 0; i < this._buffers.length; i++) {
         total_length += this._buffers[i].byteLength;
       }
@@ -888,36 +894,48 @@ Socket.prototype._receiveCb = function(readInfo) {
         this._memcpyWhole(arr, length_covered, this._buffers[i]);
         length_covered += this._buffers[i].byteLength;
       }
-      this._memcpyWhole(arr, length_covered, readInfo.data);
+      this._memcpy(arr, length_covered, index, readInfo.data);
       this._arrayBufferToString(arr, function(data) {
-        // TODO: make this more efficent by splitting on the buffer level, not after conversion to string
-        var data_arr = data.split('\n');
-        for(var i in data_arr) {
-          // TODO: handle protocol error
-          var d;
-          if(data_arr[i].length > 0){
-            try {
-              d = JSON.parse(data_arr[i]);
-            } catch (e) {
-              debug("Failed to parse: ", data_arr[i]);
-            }
-            if(d) {
-              this._receive(d);
-            }
-          }
+        // TODO: handle protocol error
+        var d;
+        console.log(JSON.stringify(data));
+        try {
+          d = JSON.parse(data);
+        } catch (e) {
+          debug("Failed to parse: ", data);
+        }
+        if (d) {
+          console.log(d, "RECEIVED");
+          this._receive(d);
+        } else {
+          console.error("FAIL");
         }
       }.bind(this));
+
+      // if there is more past the end of the message, put it back
       this._buffers = [];
+      if(index !== readInfo.data.byteLength - 1){
+        console.log(readInfo.data.byteLength-index-1, "ASDFASDFASDFASDF");
+        this._receiveCb({data: readInfo.data.slice(index+1,readInfo.data.byteLength), resultCode:readInfo.data.byteLength-index-1, hacks:true});
+      }
+      console.log(this._buffers, "BUFFERS");
     } else {
       this._buffers.push(readInfo.data);
     }
     debug('read again');
-    chrome.socket.read(this.socketId, null, this._receiveCb.bind(this));
+    if(!readInfo.hacks)
+      chrome.socket.read(this.socketId, null, this._receiveCb.bind(this));
   }
 };
 
 Socket.prototype._receive = function(json) {
   this.emit(json.method, json.payload);
+};
+
+Socket.prototype._memcpy = function(dst, dstOffset, end, src) {
+  var dstU8 = new Uint8Array(dst, dstOffset, end);
+  var srcU8 = new Uint8Array(src, 0, end);
+  dstU8.set(srcU8);
 };
 
 Socket.prototype._memcpyWhole = function(dst, dstOffset, src) {
@@ -926,14 +944,14 @@ Socket.prototype._memcpyWhole = function(dst, dstOffset, src) {
   dstU8.set(srcU8);
 };
 
-Socket.prototype._finalBuff = function(buff) {
+Socket.prototype._endOfMsg = function(buff) {
   var buff8 = new Uint8Array(buff);
   for (var i = 0; i < buff.byteLength; i++) {
     if (buff8[i] == 10) {
-      return true; // '\n'
+      return i; // '\n'
     }
   }
-  return false;
+  return -1;
 };
 
 Socket.prototype._stringToArrayBuffer = function(str, callback) {
