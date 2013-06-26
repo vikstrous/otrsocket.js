@@ -165,31 +165,49 @@ describe('Socket', function() {
     });
     it('should be able to receive', function(done) {
       debug('test 7');
-
-      // this.client.connect(function(err) {
-      //   expect(err).to.be(undefined);
-      //   this.client.disconnect();
-
-        this.server.stop();
-        this.server.listen(function(err) {
+      this.client.disconnect();
+      this.server.stop();
+      this.server.listen(function(err) {
+        expect(err).to.be(undefined);
+        var cb = function(conn) {
+          debug("send");
+          conn.send('derp', 'test');
+          conn.off('connection', cb);
+        };
+        this.server.on('connection', cb);
+        this.client.connect(function(err) {
           expect(err).to.be(undefined);
-          var cb = function(conn) {
-            debug("send");
-            conn.send('derp', 'test');
-            conn.off('connection', cb);
-          };
-          this.server.on('connection', cb);
-          this.client.connect(function(err) {
-            expect(err).to.be(undefined);
-            this.client.on('derp', function(data) {
-              expect(data).to.be('test');
-              done();
-            });
-          }.bind(this));
-        }.bind(this), function() {
-          debug(2);
-        });
-      // }.bind(this));
+          this.client.on('derp', function(data) {
+            expect(data).to.be('test');
+            done();
+          });
+        }.bind(this));
+      }.bind(this));
+    });
+    it('should be able to receive big', function(done) {
+      var big = "";
+      for(var i = 0; i < 10000; i++){
+        big += ".";
+      }
+      debug('test 7');
+      this.client.disconnect();
+      this.server.stop();
+      this.server.listen(function(err) {
+        expect(err).to.be(undefined);
+        var cb = function(conn) {
+          debug("send");
+          conn.send('derp', big);
+          conn.off('connection', cb);
+        };
+        this.server.on('connection', cb);
+        this.client.connect(function(err) {
+          expect(err).to.be(undefined);
+          this.client.on('derp', function(data) {
+            expect(data).to.be(big);
+            done();
+          });
+        }.bind(this));
+      }.bind(this));
     });
 
     after(function() {
@@ -256,16 +274,30 @@ describe('OTRSocket', function() {
       console.log(this.client);
     });
     it('should be able to connect', function(done) {
-      this.server.on('connection', function(){
-        debug(arguments, 'weeeeeee');
-      });
+      var cb = function(){
+        this.server.off('connection', cb);
+        done();
+      }.bind(this);
+      this.server.on('connection', cb);
       this.client.connect(function(res){
         expect(res).to.be(undefined);
-        done();
       });
     });
-    it('should be able to send', function() {
-      this.client.send("hello");
+    it('should be able to send', function(done) {
+      this.client.disconnect();
+      var cb = function(conn){
+        var cb2 = function(msg){
+          expect(msg).to.be("hello");
+          done();
+        };
+        conn.on('msg', cb2);
+        this.server.off('connection', cb);
+      }.bind(this);
+      this.server.on('connection', cb);
+      this.client.connect(function(res){
+        expect(res).to.be(undefined);
+        this.client.send("hello");
+      }.bind(this));
     });
   });
 });

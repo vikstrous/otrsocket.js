@@ -853,6 +853,7 @@ Socket.prototype.disconnect = function() {
 
 //TODO: add a newline more efficiently
 Socket.prototype.send = function(method, obj, callback) { //callback not implemented yet; request/response matching needed
+  if(this.socketId === undefined){ if(typeof callback ==='function') callback(); return;}
   this._stringToArrayBuffer(JSON.stringify({
     method: method,
     payload: obj

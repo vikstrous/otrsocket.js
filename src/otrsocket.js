@@ -67,29 +67,31 @@ function OTRSocket(host, port, myKey, server, socket) {
   this.socket = socket || new Socket(host, port);
 
   this.buddy.on('ui', function(msg) {
-    console.log("message to display to the user:" + msg);
-    // var newmsg = "HAII to user??";
-    // buddy.sendMsg(newmsg);
+    this.emit('msg', msg);
   }.bind(this));
 
   this.buddy.on('error', function(err) {
-    console.log("error occurred: " + err);
+    this.emit('err', err);
   }.bind(this));
 
   if (server) {
     this.buddy.on('io', function(msg) {
-      console.log(arguments, "TEST0");
       this.socket.send('msg', msg);
     }.bind(this));
     this.socket.on('msg', function(data) {
-      console.log(arguments, "TEST3");
       this.buddy.receiveMsg(data);
     }.bind(this));
   }
 }
 
+util.inherits(OTRSocket, EventEmitter);
+
 OTRSocket.prototype.send = function(msg, cb) {
   this.buddy.sendMsg(msg);
+};
+
+OTRSocket.prototype.disconnect = function(){
+  this.socket.disconnect();
 };
 
 OTRSocket.prototype.connect = function(cb) {
@@ -97,11 +99,9 @@ OTRSocket.prototype.connect = function(cb) {
   this.socket.connect(function(err) {
     if (!err) {
       this.buddy.on('io', function(msg) {
-        console.log(arguments, "TEST");
         this.socket.send('msg', msg);
       }.bind(this));
       this.socket.on('msg', function(data) {
-        console.log(arguments, "TEST2");
         this.buddy.receiveMsg(data);
       }.bind(this));
     }
