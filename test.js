@@ -347,6 +347,12 @@ describe('OTRSocket', function() {
   });
 });
 
+
+describe('OTRUser', function() {
+  describe('works', function() {
+  });
+});
+
 mocha.checkLeaks();
 mocha.globals(['jQuery']);
 mocha.run();
