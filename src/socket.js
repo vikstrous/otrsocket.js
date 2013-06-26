@@ -890,13 +890,22 @@ Socket.prototype._receiveCb = function(readInfo) {
       }
       this._memcpyWhole(arr, length_covered, readInfo.data);
       this._arrayBufferToString(arr, function(data) {
-        // TODO: handle protocol error
-        try {
-          data = JSON.parse(data);
-        } catch (e) {
-          debug("Failed to parse: ", data);
+        // TODO: make this more efficent by splitting on the buffer level, not after conversion to string
+        var data_arr = data.split('\n');
+        for(var i in data_arr) {
+          // TODO: handle protocol error
+          var d;
+          if(data_arr[i].length > 0){
+            try {
+              d = JSON.parse(data_arr[i]);
+            } catch (e) {
+              debug("Failed to parse: ", data_arr[i]);
+            }
+            if(d) {
+              this._receive(d);
+            }
+          }
         }
-        this._receive(data);
       }.bind(this));
       this._buffers = [];
     } else {

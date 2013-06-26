@@ -163,6 +163,47 @@ describe('Socket', function() {
         }.bind(this));
       }.bind(this));
     });
+    it('should be able to send 2', function(done) {
+      debug('test 6');
+      this.server.stop();
+      this.server.listen(function(err) {
+        var cb2 = function(conn) {
+          var almost_done = false;
+          var cb = function(data) {
+            expect(data).to.be('test');
+            conn.off('derp', cb);
+            this.client.disconnect();
+            if (almost_done)
+              done();
+            else
+              almost_done = true;
+          }.bind(this);
+          var cb3 = function(data) {
+            expect(data).to.be('test2');
+            conn.off('derp2', cb3);
+            this.client.disconnect();
+            if (almost_done)
+              done();
+            else
+              almost_done = true;
+          }.bind(this);
+          conn.on('derp', cb);
+          conn.on('derp2', cb3);
+          conn.off('connection', cb2);
+        }.bind(this);
+        this.server.on('connection', cb2);
+        this.client.disconnect();
+        this.client.connect(function(err) {
+          expect(err).to.be(undefined);
+          this.client.send('derp', 'test', function(err) {
+            expect(err).to.be(undefined);
+          }.bind(this));
+          this.client.send('derp2', 'test2', function(err) {
+            expect(err).to.be(undefined);
+          }.bind(this));
+        }.bind(this));
+      }.bind(this));
+    });
     it('should be able to receive', function(done) {
       debug('test 7');
       this.client.disconnect();
@@ -177,16 +218,18 @@ describe('Socket', function() {
         this.server.on('connection', cb);
         this.client.connect(function(err) {
           expect(err).to.be(undefined);
-          this.client.on('derp', function(data) {
+          var cb2 = function(data) {
             expect(data).to.be('test');
+            this.client.off('derp', cb2);
             done();
-          });
+          }.bind(this);
+          this.client.on('derp', cb2);
         }.bind(this));
       }.bind(this));
     });
     it('should be able to receive big', function(done) {
       var big = "";
-      for(var i = 0; i < 10000; i++){
+      for (var i = 0; i < 10000; i++) {
         big += ".";
       }
       debug('test 7');
@@ -202,10 +245,12 @@ describe('Socket', function() {
         this.server.on('connection', cb);
         this.client.connect(function(err) {
           expect(err).to.be(undefined);
-          this.client.on('derp', function(data) {
+          var cb2 = function(data) {
             expect(data).to.be(big);
+            this.client.off('derp', cb2);
             done();
-          });
+          }.bind(this);
+          this.client.on('derp', cb2);
         }.bind(this));
       }.bind(this));
     });
