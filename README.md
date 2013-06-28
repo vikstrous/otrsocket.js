@@ -46,7 +46,7 @@ server.on('connection', function(socket) {
 });
 ```
 
-OTRSocketClient
+OTRSocket
 ---
 ```javascript
 var myKey = new DSA();
