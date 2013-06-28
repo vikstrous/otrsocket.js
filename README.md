@@ -35,7 +35,7 @@ OTRSocketServer
 ---
 ```javascript
 var myKey = new DSA();
-var server = new OTRSocketServer('127.0.0.1', 8089, myKey);
+var server = new OTRSocketServer('127.0.0.1', 8080, myKey);
 server.listen(function(err){
   if (err) throw err;
 });
@@ -50,7 +50,7 @@ OTRSocketClient
 ---
 ```javascript
 var myKey = new DSA();
-var client = new OTRSocket('127.0.0.1', 8089, myKey);
+var client = new OTRSocket('127.0.0.1', 8080, myKey);
 client.connect(function(err){
   if (err) throw err;
   client.on('pong', function(data){
