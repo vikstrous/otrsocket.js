@@ -1,7 +1,7 @@
 mocha.setup('bdd');
 
 function debug() {
-  console.log(arguments);
+  // console.log(arguments);
 }
 
 describe('SocketServer', function() {
@@ -331,7 +331,6 @@ describe('OTRSocket', function() {
     });
     it('should be possible to create one', function() {
       this.client = new OTRSocket('127.0.0.1', 8089, this.myKey);
-      console.log(this.client);
     });
     it('should be able to connect', function(done) {
       var cb = function() {
@@ -358,69 +357,6 @@ describe('OTRSocket', function() {
         expect(res).to.be(undefined);
         this.client.send("hello");
       }.bind(this));
-    });
-  });
-});
-
-
-describe('OTRUser', function() {
-  describe('works', function() {
-    before(function(done) {
-      // speed up testing:
-      chrome.storage.local.get('dsaKey', function(data) {
-        if (data['dsaKey']) {
-          this.myKey = DSA.parsePrivate(data['dsaKey']);
-        } else {
-          this.myKey = new DSA();
-          var data2 = {};
-          data2['dsaKey'] = this.myKey.packPrivate();
-          chrome.storage.local.set(data2, function() {
-            console.log(arguments);
-          });
-        }
-        done();
-      }.bind(this));
-    });
-    it('should handle one user', function(done) {
-      this.user = new OTRUser('127.0.0.1', 34564, this.myKey);
-      this.user.listen(function(res) {
-        expect(res).to.be(undefined);
-        done();
-      }.bind(this));
-    });
-    it('should be able to add a friend', function(done) {
-      this.other_user = new OTRUser('127.0.0.1', 34565, this.myKey);
-      this.other_user.listen(function(res) {
-        expect(res).to.be(undefined);
-        this.other_user.addFriend('127.0.0.1', 34564, this.myKey);
-        done();
-      }.bind(this));
-    });
-    it('should be able to say hello to a new friend', function(done) {
-      var cb = function(friend){
-        var cb = function(msg) {
-          expect(msg).to.be('hi');
-          friend.socket.off('msg', cb);
-          done();
-        }.bind(this);
-        friend.socket.on('msg', cb);
-      }.bind(this);
-      this.user.on('new_friend', cb);
-      this.other_user.friends[0].user.send('hi');
-    });
-    it('should be able to say hello twice to our good old friend', function(done) {
-      var counter = 0;
-      var cb = function(msg) {
-        expect(msg).to.be('hi');
-        counter++;
-        if (counter == 2) {
-          this.user.friends[0].socket.off('msg', cb);
-          done();
-        }
-      }.bind(this);
-      this.user.friends[0].socket.on('msg', cb);
-      this.other_user.friends[0].user.send('hi');
-      this.other_user.friends[0].user.send('hi');
     });
   });
 });
