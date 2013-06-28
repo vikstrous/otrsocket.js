@@ -805,7 +805,7 @@ Socket.prototype._connectStage2 = function(cb) {
       debug('connect client to ' + this.ip + ':' + this.port);
       chrome.socket.connect(this.socketId, this.ip, this.port, function(resultCode) {
         debug(resultCode, 'stage2 - connected');
-        debug("client read");
+        debug("client read callback binding");
         chrome.socket.read(this.socketId, null, this._receiveCb.bind(this));
         if (typeof cb === 'function') {
           if (resultCode !== 0) {
@@ -857,12 +857,13 @@ Socket.prototype.send = function(method, obj, callback) { //callback not impleme
     if (typeof callback === 'function') callback();
     return;
   }
+  debug("sending:", obj);
   this._stringToArrayBuffer(JSON.stringify({
     method: method,
     payload: obj
   }) + '\n', function(msg) {
     chrome.socket.write(this.socketId, msg, function(res) {
-      debug(res);
+      debug('write', res);
       if (typeof callback === 'function') callback(res.bytesWritten > 0 ? undefined : new Error('send failed: ' + util.errorName(res.bytesWritten)), res.bytesWritten);
     }.bind(this));
   }.bind(this));

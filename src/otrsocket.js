@@ -20,12 +20,18 @@ function debug() {
   console.log(arguments);
 }
 
-function OTRUser(host, port, myKey) {
+function OTRUser(host, port, myKey, server, socket) {
   if (!myKey) this.myKey = new DSA();
   else if (typeof myKey === 'string') this.myKey = DSA.parsePrivate(myKey);
   else this.myKey = myKey;
-  this.server = new OTRSocketServer(host, port, this.myKey);
-  this.server.on('connection', this.onconnection.bind(this));
+  if (server) {
+    this.isServer = false;
+    this.socket = socket;
+  } else {
+    this.isServer = true;
+    this.server = new OTRSocketServer(host, port, this.myKey);
+    this.server.on('connection', this.onconnection.bind(this));
+  }
   this.friends = [];
   this.friends_by_key = {};
 }
@@ -33,11 +39,32 @@ function OTRUser(host, port, myKey) {
 util.inherits(OTRUser, EventEmitter);
 
 OTRUser.prototype.onconnection = function(otr_socket) {
-  this.emit('connection', otr_socket);
+  var fg = otr_socket.myKey.fingerprint();
+  if(!this.friends[this.friends_by_key[fg]]){
+    var id = this.friends.length;
+    this.friends.push({
+      host: otr_socket.host,
+      port: otr_socket.port,
+      key: otr_socket.myKey,
+      socket: otr_socket
+    });
+    this.friends_by_key[fg] = id;
+    this.emit('new_friend', this.friends[id]);
+  } else {
+    this.friends[this.friends_by_key[fg]].socket = otr_socket;
+    this.emit('connection', this.friends[this.friends_by_key[fg]]);
+  }
 };
 
 OTRUser.prototype.listen = function(cb) {
   this.server.listen(cb);
+};
+
+OTRUser.prototype.send = function(msg) {
+  if(this.isServer) { throw new Error('Cannot send to self?'); }
+  this.socket.connect(function(){
+    this.socket.send(msg);
+  }.bind(this));
 };
 
 OTRUser.prototype.addFriend = function(host, port, key) {
@@ -46,9 +73,9 @@ OTRUser.prototype.addFriend = function(host, port, key) {
     host: host,
     port: port,
     key: key,
-    socket: new OTRSocket(host, port, this.myKey)
+    user: new OTRUser(host, port, this.myKey, true, new OTRSocket(host, port, this.myKey))
   });
-  this.friends_by_key[key] = id;
+  this.friends_by_key[key.fingerprint()] = id;
 };
 
 
