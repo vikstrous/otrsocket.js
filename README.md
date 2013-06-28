@@ -25,10 +25,39 @@ Client
 var client = new Socket('127.0.0.1', 8080);
 client.on('message', function(data) {
   console.log(data);
-})
+});
 client.connect(function(err) {
   if (err) throw err;
 });
+```
+
+OTRSocketServer
+---
+```javascript
+var myKey = new DSA();
+var server = new OTRSocketServer('127.0.0.1', 8089, myKey);
+server.listen(function(err){
+  if (err) throw err;
+});
+server.on('connection', function(socket){
+  socket.on('ping', function(data){
+    socket.send('pong', data);
+  });
+});
+```
+
+OTRSocketClient
+```javascript
+var myKey = new DSA();
+var client = new OTRSocket('127.0.0.1', 8089, myKey);
+client.connect(function(err){
+  if (err) throw err;
+  client.on('pong', function(data){
+    console.log(data);
+  });
+  client.send('ping', 'If at first you don\'t succeed at breaking a cipher, you\'re not Bruce Schneier.');
+});
+
 ```
 
 Disclaimer
