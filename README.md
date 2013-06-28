@@ -47,6 +47,7 @@ server.on('connection', function(socket){
 ```
 
 OTRSocketClient
+---
 ```javascript
 var myKey = new DSA();
 var client = new OTRSocket('127.0.0.1', 8089, myKey);
