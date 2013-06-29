@@ -7282,7 +7282,7 @@ CryptoJS.mode.CTR = (function () {
     , DSA: root.DSA
   }
 
-}))(function(exports){
+}));(function(exports){
   var util = {
     inherits: function(ctor, superCtor) {
       ctor.super_ = superCtor;
@@ -8255,7 +8255,8 @@ CryptoJS.mode.CTR = (function () {
 
   exports.Socket = Socket;
   exports.SocketServer = SocketServer;
-})(window);;(function(exports){
+})(window);
+;(function(exports){
   var util = {
     inherits: function(ctor, superCtor) {
       ctor.super_ = superCtor;
