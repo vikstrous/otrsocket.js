@@ -6,7 +6,7 @@ A library that provides an abstraction on top of Off The Record and Chrome's soc
 Sockets
 ===
 
-Server
+SocketServer
 ---
 
 ```javascript
@@ -19,7 +19,7 @@ server.listen(function(err) {
 });
 ```
 
-Client
+Socket
 ---
 ```javascript
 var client = new Socket('127.0.0.1', 8080);
