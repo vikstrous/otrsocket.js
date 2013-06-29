@@ -1,4 +1,4 @@
-(function(exports){
+;(function(exports){
   var util = {
     inherits: function(ctor, superCtor) {
       ctor.super_ = superCtor;
