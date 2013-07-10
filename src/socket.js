@@ -17,8 +17,8 @@
     }
   };
 
-  function debug() {
-    // console.log(arguments);
+  function debug(a,b) {
+    // console.log(a,b);
   }
 
   // chromium/src/net/base/net_error_list.h;
@@ -779,6 +779,9 @@
     this.ip = ip;
     this.port = port;
     this._buffers = [];
+    this._messageId = 0;
+    this._messageIdMax = 1000000000000000;//TODO: figure out when it's safe to loop
+    this._messageCbs = [];
     this._server = server;
     if (server) {
       this.socketId = socketId;
@@ -853,19 +856,33 @@
   };
 
   //TODO: add a newline more efficiently
-  Socket.prototype.send = function(method, obj, callback) { //callback not implemented yet; request/response matching needed
+  Socket.prototype.send = function(method, obj, callback, type, messageId) { //callback not implemented yet; request/response matching needed
     if (this.socketId === undefined) {
-      if (typeof callback === 'function') callback();
+      if (typeof callback === 'function') callback(new Error('Not connected'));
       return;
     }
+    if (typeof callback === 'function') {
+        messageId = this._messageId;
+        this._messageId = (this._messageId + 1) % this._messageIdMax;
+        this._messageCbs[messageId] = callback;
+    }
     debug("sending:", obj);
-    this._stringToArrayBuffer(JSON.stringify({
+    var msg = {
+      type: 'simple',
       method: method,
       payload: obj
-    }) + '\n', function(msg) {
+    };
+    if(messageId !== undefined) {
+      msg['messageId'] = messageId;
+      msg['type'] = 'request';
+    }
+    if (type == 'response') {
+      msg['type'] = 'response';
+    }
+    this._stringToArrayBuffer(JSON.stringify(msg) + '\n', function(msg) {
       chrome.socket.write(this.socketId, msg, function(res) {
         debug('write', res);
-        if (typeof callback === 'function') callback(res.bytesWritten > 0 ? undefined : new Error('send failed: ' + util.errorName(res.bytesWritten)), res.bytesWritten);
+        if (typeof callback === 'function' && res.bytesWritten <= 0) callback(new Error('Send failed: ' + util.errorName(res.bytesWritten)), res.bytesWritten);
       }.bind(this));
     }.bind(this));
   };
@@ -926,7 +943,19 @@
   };
 
   Socket.prototype._receive = function(json) {
-    this.emit(json.method, json.payload);
+    if(json.type == 'simple'){
+      this.emit(json.method, json.payload);
+    } else if (json.type == 'request') {
+      this.emit(json.method, json.payload, function(reply) {
+        this.send(json.method, reply, undefined, 'response', json.messageId);
+      }.bind(this));
+    } else if (json.type == 'response') {
+      if(this._messageCbs[json.messageId]) {
+        this._messageCbs[json.messageId](json.payload);
+      } else {
+        debug(json, "Got reponse with no request");
+      }
+    }
   };
 
   Socket.prototype._memcpy = function(dst, dstOffset, end, src) {

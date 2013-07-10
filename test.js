@@ -1,7 +1,7 @@
 mocha.setup('bdd');
 
-function debug() {
-  // console.log(arguments);
+function debug(a,b) {
+  console.log(a,b);
 }
 
 describe('SocketServer', function() {
@@ -262,6 +262,63 @@ describe('Socket', function() {
             done();
           }.bind(this);
           this.client.on('derp', cb2);
+        }.bind(this));
+      }.bind(this));
+    });
+    it('should be able to use requet-response matching', function(done) {
+      debug('test 8');
+      this.client.disconnect();
+      this.server.stop();
+      this.server.listen(function(err) {
+        expect(err).to.be(undefined);
+        var cb = function(conn) {
+          conn.on('ping', function(data, cb){
+            expect(err).to.be(undefined);
+            expect(data).to.be('ping');
+            cb('pong');
+            conn.off('connection', cb);
+          });
+        };
+        this.server.on('connection', cb);
+        this.client.connect(function(err) {
+          expect(err).to.be(undefined);
+          this.client.send('ping', 'ping', function(data){
+            expect(data).to.be('pong');
+            done();
+          });
+        }.bind(this));
+      }.bind(this));
+    });
+    it('should be able to use more complex requet-response matching', function(done) {
+      debug('test 8');
+      this.client.disconnect();
+      this.server.stop();
+      this.server.listen(function(err) {
+        expect(err).to.be(undefined);
+        var cb = function(conn) {
+          conn.on('ping', function(data, cb){
+            expect(err).to.be(undefined);
+            expect(data).to.be('ping');
+            cb('pong');
+            conn.off('connection', cb);
+          });
+          conn.on('sing', function(data, cb){
+            expect(err).to.be(undefined);
+            expect(data).to.be('sing');
+            cb('song');
+            conn.off('connection', cb);
+          });
+        };
+        this.server.on('connection', cb);
+        this.client.connect(function(err) {
+          expect(err).to.be(undefined);
+          this.client.send('ping', 'ping', function(data){
+            expect(data).to.be('pong');
+            this.client.send('sing', 'sing', function(data){
+              expect(data).to.be('song');
+              done();
+            }.bind(this));
+          }.bind(this));
         }.bind(this));
       }.bind(this));
     });
