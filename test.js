@@ -1,7 +1,7 @@
 mocha.setup('bdd');
 
 function debug(a,b) {
-  console.log(a,b);
+  // console.log(a,b);
 }
 
 describe('SocketServer', function() {

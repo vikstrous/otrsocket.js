@@ -952,6 +952,7 @@
     } else if (json.type == 'response') {
       if(this._messageCbs[json.messageId]) {
         this._messageCbs[json.messageId](json.payload);
+        delete this._messageCbs[json.messageId];
       } else {
         debug(json, "Got reponse with no request");
       }
