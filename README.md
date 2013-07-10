@@ -3,8 +3,12 @@ OTRSocket.js
 
 A library that provides an abstraction on top of Off The Record and Chrome's socket API
 
-SocketServer
+Non-Encrypted Sockets
 ---
+
+Example 1:
+
+SocketServer
 
 ```javascript
 var server = new SocketServer('0.0.0.0', 8080);
@@ -15,7 +19,7 @@ server.on('connection', function(socket) {
 ```
 
 Socket
----
+
 ```javascript
 var client = new Socket('127.0.0.1', 8080);
 client.connect();
@@ -24,8 +28,37 @@ client.on('message', function(data) {
 });
 ```
 
-OTRSocketServer
+Example 2:
+
+SocketServer
+
+```javascript
+var server = new SocketServer('0.0.0.0', 8080);
+server.listen();
+server.on('connection', function(socket) {
+  socket.on('msg', function(data, cb){
+    if(data == 'ping') cb('pong');
+  });
+});
+```
+
+Socket
+
+```javascript
+var client = new Socket('127.0.0.1', 8080);
+client.connect();
+client.send('msg', 'ping', function(data) {
+  if (data == 'pong') {
+    console.log('Got pong!');
+  }
+});
+```
+
+Encrypted Sockets
 ---
+
+OTRSocketServer
+
 ```javascript
 var myKey = new DSA();
 var server = new OTRSocketServer('127.0.0.1', 8080, myKey);
@@ -38,7 +71,7 @@ server.on('connection', function(socket) {
 ```
 
 OTRSocket
----
+
 ```javascript
 var myKey = new DSA();
 var client = new OTRSocket('127.0.0.1', 8080, myKey);
