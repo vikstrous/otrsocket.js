@@ -5,7 +5,7 @@ function debug(a,b) {
 }
 
 var myKey;
-var pipeline = function(){return [new EventToObject(), new ObjectToString(), /*new OTRPipe(myKey),*/ new BufferDefragmenterStage1(), new StringToBuffer(), new BufferDefragmenter2()];};
+var pipeline = function(){return [new EventToObject(), new ObjectToString(), new OTRPipe(myKey), new BufferDefragmenterStage1(), new StringToBuffer(), new BufferDefragmenter2()];};
 
     chrome.storage.local.get('dsaKey', function(data) {
       if (data['dsaKey']) {
@@ -189,6 +189,7 @@ describe('Socket', function() {
         this.client.connect(function(err) {
           expect(err).to.be(undefined);
           this.client.send('derp', 'test');
+          this.client.send('derp', 'test');
         }.bind(this));
       }.bind(this));
     });
@@ -340,94 +341,6 @@ describe('Socket', function() {
     after(function() {
       this.client.destroy();
       this.server.stop();
-    });
-  });
-});
-
-
-describe('OTRSocketServer', function() {
-  describe('works', function() {
-    before(function(done) {
-      // speed up testing:
-      chrome.storage.local.get('dsaKey', function(data) {
-        if (data['dsaKey']) {
-          this.myKey = DSA.parsePrivate(data['dsaKey']);
-        } else {
-          this.myKey = new DSA();
-          var data2 = {};
-          data2['dsaKey'] = this.myKey.packPrivate();
-          chrome.storage.local.set(data2, function() {
-            console.log(arguments);
-          });
-        }
-        done();
-      }.bind(this));
-    });
-    it('should be possible to create one', function() {
-      this.server = new OTRSocketServer('127.0.0.1', 8089, this.myKey);
-    });
-    it('should be able to listen', function(done) {
-      this.server.listen(function(res) {
-        expect(res).to.be(undefined);
-        done();
-      });
-    });
-    it('should be able to stop', function() {
-      this.server.stop();
-    });
-  });
-});
-
-describe('OTRSocket', function() {
-  describe('works', function() {
-    before(function(done) {
-      // speed up testing:
-      chrome.storage.local.get('dsaKey', function(data) {
-        if (data['dsaKey']) {
-          this.myKey = DSA.parsePrivate(data['dsaKey']);
-        } else {
-          this.myKey = new DSA();
-          var data2 = {};
-          data2['dsaKey'] = this.myKey.packPrivate();
-          chrome.storage.local.set(data2, function() {
-            console.log(arguments);
-          });
-        }
-        this.server = new OTRSocketServer('127.0.0.1', 8089, this.myKey);
-        this.server.listen(function(res) {
-          expect(res).to.be(undefined);
-          done();
-        });
-      }.bind(this));
-    });
-    it('should be possible to create one', function() {
-      this.client = new OTRSocket('127.0.0.1', 8089, this.myKey);
-    });
-    it('should be able to connect', function(done) {
-      var cb = function() {
-        this.server.off('connection', cb);
-        done();
-      }.bind(this);
-      this.server.on('connection', cb);
-      this.client.connect(function(res) {
-        expect(res).to.be(undefined);
-      });
-    });
-    it('should be able to send', function(done) {
-      this.client.disconnect();
-      var cb = function(conn) {
-        var cb2 = function(msg) {
-          expect(msg).to.be("hello");
-          done();
-        };
-        conn.on('msg', cb2);
-        this.server.off('connection', cb);
-      }.bind(this);
-      this.server.on('connection', cb);
-      this.client.connect(function(res) {
-        expect(res).to.be(undefined);
-        this.client.send("hello");
-      }.bind(this));
     });
   });
 });

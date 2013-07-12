@@ -922,15 +922,19 @@
   };
 
   LastPipe.prototype.pipeOut = function(msg){
-    chrome.socket.write(this.socket.socketId, msg, this.writeDone);//Remember it's not bound to this right now
+    if(this.socket.socketId !== undefined){
+      chrome.socket.write(this.socket.socketId, msg, this.writeDone);//Remember it's not bound to this right now
+    } else {
+      console.error('Please connect before sending');
+    }
   };
 
   // objects in the pipeline are called in order and the "in" and "out" functions are called when a message is coming in or out
   //TODO: improve constructor
-  function SocketServer(ip, port, pipeline) {
+  function SocketServer(ip, port, pipeline_fn) {
     this.ip = ip;
     this.port = port;
-    this.pipeline = pipeline;
+    this.pipeline_fn = pipeline_fn;
   }
 
   util.inherits(SocketServer, EventEmitter);
@@ -958,7 +962,7 @@
               debug(res, "info");
               debug(res.peerAddress, res.peerPort, "info");
               if (res.peerAddress) {
-                this.emit('connection', new Socket(res.peerAddress, res.peerPort, true, acceptInfo.socketId, this.pipeline));
+                this.emit('connection', new Socket(res.peerAddress, res.peerPort, true, acceptInfo.socketId, this.pipeline_fn));
               }
             }.bind(this));
             if (this.socketId) // because the server might have been stopped already
@@ -982,34 +986,17 @@
   };
 
   //TODO: improve constructor
-  var Socket = function(ip, port, server, socketId, pipeline) {
+  var Socket = function(ip, port, server, socketId, pipeline_fn) {
     this.ip = ip;
     this.port = port;
 
-    // set up the pipeline
-    var pipeline_clone;
-    if(typeof pipeline === 'function') {
-      pipeline_clone = pipeline();
-    }
-    else if(typeof pipeline === 'object') {
-      pipeline_clone = pipeline && pipeline.slice(0) || [];
-    } else {
-      pipeline_clone = [new EventToObject(), new ObjectToString(), new BufferDefragmenterStage1(), new StringToBuffer(), new BufferDefragmenter2()];
-    }
-    pipeline_clone.unshift(new FirstPipe(this));
-    pipeline_clone.push(new LastPipe(this));
-    pipeline_clone[0].next = pipeline_clone[1];
-    for (var p = 1; p < pipeline_clone.length - 1; p++) {
-      pipeline_clone[p].next = pipeline_clone[p+1];
-      pipeline_clone[p].prev = pipeline_clone[p-1];
-    }
-    pipeline_clone[pipeline_clone.length-1].prev = pipeline_clone[pipeline_clone.length-2];
-    this.pipeline = pipeline_clone;
+    this.pipeline_fn = pipeline_fn;
 
     this._buffers = [];
     this._server = server;
     if (server) {
       this.socketId = socketId;
+      this.initPipeline();
       debug('read server');
       chrome.socket.read(this.socketId, null, this._receiveCb.bind(this));
     }
@@ -1019,6 +1006,26 @@
   };
 
   util.inherits(Socket, EventEmitter);
+
+  Socket.prototype.initPipeline = function(){
+    // set up the pipeline
+    var pipeline;
+    if(typeof this.pipeline_fn === 'function') {
+      pipeline = this.pipeline_fn();
+    } else {
+      // default pipeline
+      pipeline = [new EventToObject(), new ObjectToString(), new BufferDefragmenterStage1(), new StringToBuffer(), new BufferDefragmenter2()];
+    }
+    pipeline.unshift(new FirstPipe(this));
+    pipeline.push(new LastPipe(this));
+    pipeline[0].next = pipeline[1];
+    for (var p = 1; p < pipeline.length - 1; p++) {
+      pipeline[p].next = pipeline[p+1];
+      pipeline[p].prev = pipeline[p-1];
+    }
+    pipeline[pipeline.length-1].prev = pipeline[pipeline.length-2];
+    this.pipeline = pipeline;
+  };
 
   Socket.prototype.info = function(cb) {
     if (this.socketId) {
@@ -1034,6 +1041,7 @@
     this.info(function(err, res) {
       if (!res.connected) {
         debug('connect client to ' + this.ip + ':' + this.port);
+        this.initPipeline();
         chrome.socket.connect(this.socketId, this.ip, this.port, function(resultCode) {
           debug(resultCode, 'stage2 - connected');
           debug("client read callback binding");
@@ -1133,7 +1141,7 @@
     var f = new FileReader();
     f.onload = function(e) {
       callback(e.target.result);
-    };
+    }.bind(this);
     f.readAsArrayBuffer(bb);
   };
 
@@ -1142,7 +1150,7 @@
     var f = new FileReader();
     f.onload = function(e) {
       callback(e.target.result);
-    };
+    }.bind(this);
     f.readAsText(bb);
   };
 
