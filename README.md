@@ -57,32 +57,23 @@ client.send('msg', 'ping', function(data) {
 Encrypted Sockets
 ---
 
-OTRSocketServer
+Create a pipeline generating function like this and pass it to the server/client socket in the constructor:
 
 ```javascript
 var myKey = new DSA();
-var server = new OTRSocketServer('127.0.0.1', 8080, myKey);
-server.listen();
-server.on('connection', function(socket) {
-  socket.on('ping', function(data) {
-    socket.send('pong', data);
-  });
-});
+var pipeline = function(){
+  return [new EventToObject(), new ObjectToString(), new OTRPipe(myKey), new BufferDefragmenterStage1(), new StringToBuffer(), new BufferDefragmenter2()];
+};
 ```
 
-OTRSocket
+Example constructors:
 
-```javascript
-var myKey = new DSA();
-var client = new OTRSocket('127.0.0.1', 8080, myKey);
-client.connect(function(err) {
-  if (err) throw err;
-  client.send('ping', 'If at first you don\'t succeed at breaking a cipher, you\'re not Bruce Schneier.');
-});
-client.on('pong', function(data) {
-  console.log(data);
-});
 ```
+new SocketServer('127.0.0.1', 8088, pipeline);
+new Socket('127.0.0.1', 8088, pipeline);
+```
+
+(Pipeline interface may change in later versions...)
 
 Disclaimer
 ---
