@@ -962,7 +962,7 @@
               debug(res, "info");
               debug(res.peerAddress, res.peerPort, "info");
               if (res.peerAddress) {
-                this.emit('connection', new Socket(res.peerAddress, res.peerPort, true, acceptInfo.socketId, this.pipeline_fn));
+                this.emit('connection', new Socket(res.peerAddress, res.peerPort, this.pipeline_fn, true, acceptInfo.socketId));
               }
             }.bind(this));
             if (this.socketId) // because the server might have been stopped already
@@ -986,7 +986,7 @@
   };
 
   //TODO: improve constructor
-  var Socket = function(ip, port, server, socketId, pipeline_fn) {
+  var Socket = function(ip, port, pipeline_fn, server, socketId) {
     this.ip = ip;
     this.port = port;
 

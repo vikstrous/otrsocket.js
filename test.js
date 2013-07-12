@@ -27,7 +27,7 @@ function tests(){
 describe('SocketServer', function() {
   describe('works', function() {
     it('should be possible to create one', function() {
-      this.server = new SocketServer('127.0.0.1', 8088, pipeline, myKey);
+      this.server = new SocketServer('127.0.0.1', 8088, pipeline);
       expect(this.server).to.be.a(SocketServer);
     });
     it('should be able to listen', function(done) {
@@ -54,14 +54,10 @@ describe('SocketServer', function() {
         done();
       }.bind(this);
       this.server.on('connection', cb);
-      var client = new Socket('127.0.0.1', 8088, null, null, pipeline);
+      var client = new Socket('127.0.0.1', 8088, pipeline);
       client.connect(function(err) {
         expect(err).to.be(undefined);
-        client.send('derp', 'test'/*, function(err) {
-          expect(err).to.be(undefined);
-          client.disconnect();
-          client.destroy();
-        }*/);
+        client.send('derp', 'test');
       });
     });
     it('should stop', function() {
@@ -77,7 +73,7 @@ describe('Socket', function() {
       this.server.listen(done);
     });
     it('should be possible to create one', function() {
-      this.client = new Socket('127.0.0.1', 8089, null, null, pipeline);
+      this.client = new Socket('127.0.0.1', 8089, pipeline);
     });
     it('should be able to connect and disconnect', function(done) {
       debug('test 1');
