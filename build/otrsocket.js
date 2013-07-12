@@ -8206,15 +8206,19 @@ CryptoJS.mode.CTR = (function () {
   };
 
   LastPipe.prototype.pipeOut = function(msg){
-    chrome.socket.write(this.socket.socketId, msg, this.writeDone);//Remember it's not bound to this right now
+    if(this.socket.socketId !== undefined){
+      chrome.socket.write(this.socket.socketId, msg, this.writeDone);//Remember it's not bound to this right now
+    } else {
+      console.error('Please connect before sending');
+    }
   };
 
   // objects in the pipeline are called in order and the "in" and "out" functions are called when a message is coming in or out
   //TODO: improve constructor
-  function SocketServer(ip, port, pipeline) {
+  function SocketServer(ip, port, pipeline_fn) {
     this.ip = ip;
     this.port = port;
-    this.pipeline = pipeline;
+    this.pipeline_fn = pipeline_fn;
   }
 
   util.inherits(SocketServer, EventEmitter);
@@ -8242,7 +8246,7 @@ CryptoJS.mode.CTR = (function () {
               debug(res, "info");
               debug(res.peerAddress, res.peerPort, "info");
               if (res.peerAddress) {
-                this.emit('connection', new Socket(res.peerAddress, res.peerPort, true, acceptInfo.socketId, this.pipeline));
+                this.emit('connection', new Socket(res.peerAddress, res.peerPort, this.pipeline_fn, true, acceptInfo.socketId));
               }
             }.bind(this));
             if (this.socketId) // because the server might have been stopped already
@@ -8266,34 +8270,17 @@ CryptoJS.mode.CTR = (function () {
   };
 
   //TODO: improve constructor
-  var Socket = function(ip, port, server, socketId, pipeline) {
+  var Socket = function(ip, port, pipeline_fn, server, socketId) {
     this.ip = ip;
     this.port = port;
 
-    // set up the pipeline
-    var pipeline_clone;
-    if(typeof pipeline === 'function') {
-      pipeline_clone = pipeline();
-    }
-    else if(typeof pipeline === 'object') {
-      pipeline_clone = pipeline && pipeline.slice(0) || [];
-    } else {
-      pipeline_clone = [new EventToObject(), new ObjectToString(), new BufferDefragmenterStage1(), new StringToBuffer(), new BufferDefragmenter2()];
-    }
-    pipeline_clone.unshift(new FirstPipe(this));
-    pipeline_clone.push(new LastPipe(this));
-    pipeline_clone[0].next = pipeline_clone[1];
-    for (var p = 1; p < pipeline_clone.length - 1; p++) {
-      pipeline_clone[p].next = pipeline_clone[p+1];
-      pipeline_clone[p].prev = pipeline_clone[p-1];
-    }
-    pipeline_clone[pipeline_clone.length-1].prev = pipeline_clone[pipeline_clone.length-2];
-    this.pipeline = pipeline_clone;
+    this.pipeline_fn = pipeline_fn;
 
     this._buffers = [];
     this._server = server;
     if (server) {
       this.socketId = socketId;
+      this.initPipeline();
       debug('read server');
       chrome.socket.read(this.socketId, null, this._receiveCb.bind(this));
     }
@@ -8303,6 +8290,26 @@ CryptoJS.mode.CTR = (function () {
   };
 
   util.inherits(Socket, EventEmitter);
+
+  Socket.prototype.initPipeline = function(){
+    // set up the pipeline
+    var pipeline;
+    if(typeof this.pipeline_fn === 'function') {
+      pipeline = this.pipeline_fn();
+    } else {
+      // default pipeline
+      pipeline = [new EventToObject(), new ObjectToString(), new BufferDefragmenterStage1(), new StringToBuffer(), new BufferDefragmenter2()];
+    }
+    pipeline.unshift(new FirstPipe(this));
+    pipeline.push(new LastPipe(this));
+    pipeline[0].next = pipeline[1];
+    for (var p = 1; p < pipeline.length - 1; p++) {
+      pipeline[p].next = pipeline[p+1];
+      pipeline[p].prev = pipeline[p-1];
+    }
+    pipeline[pipeline.length-1].prev = pipeline[pipeline.length-2];
+    this.pipeline = pipeline;
+  };
 
   Socket.prototype.info = function(cb) {
     if (this.socketId) {
@@ -8318,6 +8325,7 @@ CryptoJS.mode.CTR = (function () {
     this.info(function(err, res) {
       if (!res.connected) {
         debug('connect client to ' + this.ip + ':' + this.port);
+        this.initPipeline();
         chrome.socket.connect(this.socketId, this.ip, this.port, function(resultCode) {
           debug(resultCode, 'stage2 - connected');
           debug("client read callback binding");
@@ -8417,7 +8425,7 @@ CryptoJS.mode.CTR = (function () {
     var f = new FileReader();
     f.onload = function(e) {
       callback(e.target.result);
-    };
+    }.bind(this);
     f.readAsArrayBuffer(bb);
   };
 
@@ -8426,7 +8434,7 @@ CryptoJS.mode.CTR = (function () {
     var f = new FileReader();
     f.onload = function(e) {
       callback(e.target.result);
-    };
+    }.bind(this);
     f.readAsText(bb);
   };
 
@@ -8438,113 +8446,4 @@ CryptoJS.mode.CTR = (function () {
   exports.BufferDefragmenter2 = BufferDefragmenter2;
   exports.Socket = Socket;
   exports.SocketServer = SocketServer;
-})(window);
-;(function(exports){
-  var util = {
-    inherits: function(ctor, superCtor) {
-      ctor.super_ = superCtor;
-      ctor.prototype = Object.create(superCtor.prototype, {
-        constructor: {
-          value: ctor,
-          enumerable: false,
-          writable: true,
-          configurable: true
-        }
-      });
-    },
-    _errorMap: {},
-    errorName: function(code) {
-      return util._errorMap[code] ? util._errorMap[code] : code;
-    }
-  };
-
-  function debug() {
-    // console.log(arguments);
-  }
-
-  function OTRSocketServer(host, port, myKey) {
-    this.socketServer = new SocketServer(host, port);
-    this.socketServer.on('connection', this.onconnection.bind(this));
-    if (!myKey) this.myKey = new DSA();
-    else if (typeof myKey === 'string') this.myKey = DSA.parsePrivate(myKey);
-    else this.myKey = myKey;
-  }
-
-  util.inherits(OTRSocketServer, EventEmitter);
-
-  OTRSocketServer.prototype.listen = function(cb) {
-    this.socketServer.listen(cb);
-  };
-
-
-  OTRSocketServer.prototype.stop = function() {
-    this.socketServer.stop();
-  };
-
-  OTRSocketServer.prototype.onconnection = function(socket) {
-    this.emit('connection', new OTRSocket(socket.ip, socket.port, this.myKey, true, socket));
-  };
-
-
-  //TODO: improve interface
-
-  function OTRSocket(host, port, myKey, server, socket) {
-    if (!myKey) this.myKey = new DSA();
-    else if (typeof myKey === 'string') this.myKey = DSA.parsePrivate(myKey);
-    else this.myKey = myKey;
-
-    var options = {
-      fragment_size: 1400,
-      send_interval: 0,
-      priv: this.myKey
-    };
-
-    this.buddy = new OTR(options);
-    this.buddy.REQUIRE_ENCRYPTION = true;
-    this.socket = socket || new Socket(host, port);
-
-    this.buddy.on('ui', function(msg) {
-      this.emit('msg', msg);
-    }.bind(this));
-
-    this.buddy.on('error', function(err) {
-      this.emit('err', err);
-    }.bind(this));
-
-    if (server) {
-      this.buddy.on('io', function(msg) {
-        this.socket.send('msg', msg);
-      }.bind(this));
-      this.socket.on('msg', function(data) {
-        this.buddy.receiveMsg(data);
-      }.bind(this));
-    }
-  }
-
-  util.inherits(OTRSocket, EventEmitter);
-
-  OTRSocket.prototype.send = function(msg) {
-    this.buddy.sendMsg(msg);
-  };
-
-  OTRSocket.prototype.disconnect = function() {
-    this.socket.disconnect();
-  };
-
-  OTRSocket.prototype.connect = function(cb) {
-    debug("connecting");
-    this.socket.connect(function(err) {
-      if (!err) {
-        this.buddy.on('io', function(msg) {
-          this.socket.send('msg', msg);
-        }.bind(this));
-        this.socket.on('msg', function(data) {
-          this.buddy.receiveMsg(data);
-        }.bind(this));
-      }
-      cb(err);
-    }.bind(this));
-  };
-  exports.OTRSocket = OTRSocket;
-  exports.OTRSocketServer = OTRSocketServer;
 })(window);
