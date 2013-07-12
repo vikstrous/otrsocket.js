@@ -8005,9 +8005,216 @@ CryptoJS.mode.CTR = (function () {
     NET_ERROR('DNS_SORT_ERROR', -806);
   })();
 
-  function SocketServer(ip, port) {
+
+  var EventToObject = function() {
+    this.prev = null;
+    this.next = null;
+    this._messageId = 0;
+    this._messageIdMax = 1000000000000000;//TODO: figure out when it's safe to loop
+    this._messageCbs = [];
+  };
+  // if sending a response, we pass in the messageId
+  // if sending a request, we may specify a callback to wait for a response
+  // or we may fire and forget with no callback
+  EventToObject.prototype.pipeOut = function(event_name, data, cb, requestId) {
+
+    debug("sending:", data);
+    var obj = {
+      type: 'simple',
+      method: event_name,
+      payload: data
+    };
+
+    if (typeof cb === 'function') { // request with callback
+      var messageId = this._messageId;
+      this._messageId = (this._messageId + 1) % this._messageIdMax;
+      this._messageCbs[messageId] = cb;
+      obj['type'] = 'request';
+      obj['messageId'] = messageId;
+    } else if (requestId !== undefined) { // response
+      obj['type'] = 'response';
+      obj['messageId'] = requestId;
+    } else { // simple request
+    }
+
+    this.next.pipeOut(obj);
+  };
+  EventToObject.prototype.pipeIn = function(json){
+    if(json.type == 'simple'){
+      this.prev.pipeIn(json.method, json.payload);
+    } else if (json.type == 'request') {
+      this.prev.pipeIn(json.method, json.payload, json.messageId/*this is converted into a callback by FirstPipe*/);
+    } else if (json.type == 'response') {
+      if(this._messageCbs[json.messageId]) {
+        this._messageCbs[json.messageId](json.payload);
+        delete this._messageCbs[json.messageId];
+      } else {
+        debug(json, "Got reponse with no request");
+      }
+    }
+  };
+
+  var ObjectToString = function() {
+    this.prev = null;
+    this.next = null;
+  };
+  ObjectToString.prototype.pipeOut = function(obj){
+    //TODO: handle errors
+    var str = JSON.stringify(obj);
+    this.next.pipeOut(str);
+  };
+  ObjectToString.prototype.pipeIn = function(str){
+    this.prev.pipeIn(JSON.parse(str));
+  };
+
+  //TODO: there are extra copies however I do this... making this class separate just avoids dealing with the buffer API and makes adding a \n easier
+  var BufferDefragmenterStage1 = function() {
+    this.prev = null;
+    this.next = null;
+  };
+  BufferDefragmenterStage1.prototype.pipeOut = function(str) {
+    this.next.pipeOut(str+'\n');
+  };
+  BufferDefragmenterStage1.prototype.pipeIn = function(str) {
+    this.prev.pipeIn(str); // NOP
+  };
+
+  var OTRPipe = function(myKey) {
+    this.prev = null;
+    this.next = null;
+
+    this.myKey = myKey;
+
+    var options = {
+      fragment_size: 1400,
+      send_interval: 0,
+      priv: this.myKey
+    };
+
+    this.buddy = new OTR(options);
+    this.buddy.REQUIRE_ENCRYPTION = true;
+
+    this.buddy.on('ui', function(msg) {
+      this.prev.pipeIn(msg);
+    }.bind(this));
+
+    this.buddy.on('io', function(msg) {
+      this.next.pipeOut(msg);
+    }.bind(this));
+
+    this.buddy.on('error', function(err) {
+      console.error(err);
+      // this.prev.pipeIn(err);//TODO: error handling
+    }.bind(this));
+  };
+
+  OTRPipe.prototype.pipeIn = function(msg){
+    this.buddy.receiveMsg(msg);
+  };
+  OTRPipe.prototype.pipeOut = function(msg){
+    this.buddy.sendMsg(msg);
+  };
+
+  var StringToBuffer = function() {
+    this.prev = null;
+    this.next = null;
+  };
+  StringToBuffer.prototype.pipeOut = function(str){
+    Socket.prototype._stringToArrayBuffer(str, function(ab){
+      this.next.pipeOut(ab);
+    }.bind(this));
+  };
+  StringToBuffer.prototype.pipeIn = function(ab){
+    Socket.prototype._arrayBufferToString(ab, function(str){
+      this.prev.pipeIn(str);
+    }.bind(this));
+  };
+
+  var BufferDefragmenter2 = function() {
+    this.prev = null;
+    this.next = null;
+  };
+  BufferDefragmenter2.prototype.pipeOut = function(ab) {
+    this.next.pipeOut(ab); // NOP: see BufferDefragmenter1
+  };
+  BufferDefragmenter2.prototype.pipeIn = function(ab) {
+    // TODO: move more logic here from lastPipe
+    this.prev.pipeIn(ab);
+  };
+
+  var FirstPipe = function(socket){
+    this.socket = socket;
+  };
+  var LastPipe = function(socket){
+    this.socket = socket;
+  };
+
+  FirstPipe.prototype.pipeIn = function(){
+    var args = Array.prototype.slice.call(arguments, 0);
+    if(args[2] !== undefined){
+      var id = args[2];
+      args[2] = function(reply) {
+        this.send(args[0], reply, undefined, id);
+      }.bind(this.socket);
+    }
+    this.socket.emit.apply(this.socket, args);
+  };
+  FirstPipe.prototype.pipeOut = function(){
+    this.next.pipeOut.apply(this.next, arguments);
+  };
+
+  LastPipe.prototype.pipeIn = function(data, hacks){
+
+    var socket = this.socket;
+    var buffers = socket._buffers;
+    var index = socket._endOfMsg(data);
+    if (index !== -1) {
+      debug('received message of length '+data.byteLength);
+      debug('found newline at ' + index);
+      var total_length = index;
+      for (var i = 0; i < buffers.length; i++) {
+        total_length += buffers[i].byteLength;
+      }
+      var arr = new ArrayBuffer(total_length);
+      var length_covered = 0;
+      for (i = 0; i < buffers.length; i++) {
+        socket._memcpyWhole(arr, length_covered, buffers[i]);
+        length_covered += buffers[i].byteLength;
+      }
+      socket._memcpy(arr, length_covered, index, data);
+
+      this.prev.pipeIn(arr);
+
+      // if there is more past the end of the message, parse it again
+      socket._buffers = [];
+      if(index !== data.byteLength - 1){
+        this.pipeIn(data.slice(index+1,data.byteLength), true);
+      }
+    } else {
+      buffers.push(data);
+    }
+    debug('read again');
+    if(!hacks){
+      chrome.socket.read(socket.socketId, null, socket._receiveCb.bind(socket));
+    }
+  };
+
+  LastPipe.prototype.writeDone = function(res){
+    if(res.bytesWritten < 0){
+      console.error('TODO: figure out how to deal with errors sending', res.bytesWritten);
+    }
+  };
+
+  LastPipe.prototype.pipeOut = function(msg){
+    chrome.socket.write(this.socket.socketId, msg, this.writeDone);//Remember it's not bound to this right now
+  };
+
+  // objects in the pipeline are called in order and the "in" and "out" functions are called when a message is coming in or out
+  //TODO: improve constructor
+  function SocketServer(ip, port, pipeline) {
     this.ip = ip;
     this.port = port;
+    this.pipeline = pipeline;
   }
 
   util.inherits(SocketServer, EventEmitter);
@@ -8035,7 +8242,7 @@ CryptoJS.mode.CTR = (function () {
               debug(res, "info");
               debug(res.peerAddress, res.peerPort, "info");
               if (res.peerAddress) {
-                this.emit('connection', new Socket(res.peerAddress, res.peerPort, true, acceptInfo.socketId));
+                this.emit('connection', new Socket(res.peerAddress, res.peerPort, true, acceptInfo.socketId, this.pipeline));
               }
             }.bind(this));
             if (this.socketId) // because the server might have been stopped already
@@ -8058,24 +8265,44 @@ CryptoJS.mode.CTR = (function () {
     delete this.socketId;
   };
 
-
-  var Socket = function(ip, port, server, socketId) {
+  //TODO: improve constructor
+  var Socket = function(ip, port, server, socketId, pipeline) {
     this.ip = ip;
     this.port = port;
+
+    // set up the pipeline
+    var pipeline_clone;
+    if(typeof pipeline === 'function') {
+      pipeline_clone = pipeline();
+    }
+    else if(typeof pipeline === 'object') {
+      pipeline_clone = pipeline && pipeline.slice(0) || [];
+    } else {
+      pipeline_clone = [new EventToObject(), new ObjectToString(), new BufferDefragmenterStage1(), new StringToBuffer(), new BufferDefragmenter2()];
+    }
+    pipeline_clone.unshift(new FirstPipe(this));
+    pipeline_clone.push(new LastPipe(this));
+    pipeline_clone[0].next = pipeline_clone[1];
+    for (var p = 1; p < pipeline_clone.length - 1; p++) {
+      pipeline_clone[p].next = pipeline_clone[p+1];
+      pipeline_clone[p].prev = pipeline_clone[p-1];
+    }
+    pipeline_clone[pipeline_clone.length-1].prev = pipeline_clone[pipeline_clone.length-2];
+    this.pipeline = pipeline_clone;
+
     this._buffers = [];
-    this._messageId = 0;
-    this._messageIdMax = 1000000000000000;//TODO: figure out when it's safe to loop
-    this._messageCbs = [];
     this._server = server;
     if (server) {
       this.socketId = socketId;
       debug('read server');
       chrome.socket.read(this.socketId, null, this._receiveCb.bind(this));
     }
+
+    debug('new socket arguments', arguments);
+    debug('new socket this', this);
   };
 
   util.inherits(Socket, EventEmitter);
-
 
   Socket.prototype.info = function(cb) {
     if (this.socketId) {
@@ -8139,36 +8366,12 @@ CryptoJS.mode.CTR = (function () {
     }
   };
 
-  //TODO: add a newline more efficiently
-  Socket.prototype.send = function(method, obj, callback, type, messageId) { //callback not implemented yet; request/response matching needed
+  Socket.prototype.send = function(method, obj, callback, messageId) {
     if (this.socketId === undefined) {
       if (typeof callback === 'function') callback(new Error('Not connected'));
       return;
     }
-    if (typeof callback === 'function') {
-        messageId = this._messageId;
-        this._messageId = (this._messageId + 1) % this._messageIdMax;
-        this._messageCbs[messageId] = callback;
-    }
-    debug("sending:", obj);
-    var msg = {
-      type: 'simple',
-      method: method,
-      payload: obj
-    };
-    if(messageId !== undefined) {
-      msg['messageId'] = messageId;
-      msg['type'] = 'request';
-    }
-    if (type == 'response') {
-      msg['type'] = 'response';
-    }
-    this._stringToArrayBuffer(JSON.stringify(msg) + '\n', function(msg) {
-      chrome.socket.write(this.socketId, msg, function(res) {
-        debug('write', res);
-        if (typeof callback === 'function' && res.bytesWritten <= 0) callback(new Error('Send failed: ' + util.errorName(res.bytesWritten)), res.bytesWritten);
-      }.bind(this));
-    }.bind(this));
+    this.pipeline[0].pipeOut.apply(this.pipeline[0], arguments);
   };
 
   Socket.prototype._receiveCb = function(readInfo) {
@@ -8183,63 +8386,7 @@ CryptoJS.mode.CTR = (function () {
       //TODO: deal with negative result codes more specifically
       this.disconnect();
     } else {
-      var index = this._endOfMsg(readInfo.data);
-      if (index !== -1) {
-        debug('received message of length '+readInfo.data.byteLength);
-        debug('found newline at ' + index);
-        var total_length = index;
-        for (var i = 0; i < this._buffers.length; i++) {
-          total_length += this._buffers[i].byteLength;
-        }
-        var arr = new ArrayBuffer(total_length);
-        var length_covered = 0;
-        for (i = 0; i < this._buffers.length; i++) {
-          this._memcpyWhole(arr, length_covered, this._buffers[i]);
-          length_covered += this._buffers[i].byteLength;
-        }
-        this._memcpy(arr, length_covered, index, readInfo.data);
-        this._arrayBufferToString(arr, function(data) {
-          // TODO: handle protocol error
-          var d;
-          debug('Got message:'+JSON.stringify(data));
-          try {
-            d = JSON.parse(data);
-          } catch (e) {
-            debug("Failed to parse: ", data);
-          }
-          if (d) {
-            this._receive(d);
-          }
-        }.bind(this));
-
-        // if there is more past the end of the message, put it back
-        this._buffers = [];
-        if(index !== readInfo.data.byteLength - 1){
-          this._receiveCb({data: readInfo.data.slice(index+1,readInfo.data.byteLength), resultCode:readInfo.data.byteLength-index-1, hacks:true});
-        }
-      } else {
-        this._buffers.push(readInfo.data);
-      }
-      debug('read again');
-      if(!readInfo.hacks)
-        chrome.socket.read(this.socketId, null, this._receiveCb.bind(this));
-    }
-  };
-
-  Socket.prototype._receive = function(json) {
-    if(json.type == 'simple'){
-      this.emit(json.method, json.payload);
-    } else if (json.type == 'request') {
-      this.emit(json.method, json.payload, function(reply) {
-        this.send(json.method, reply, undefined, 'response', json.messageId);
-      }.bind(this));
-    } else if (json.type == 'response') {
-      if(this._messageCbs[json.messageId]) {
-        this._messageCbs[json.messageId](json.payload);
-        delete this._messageCbs[json.messageId];
-      } else {
-        debug(json, "Got reponse with no request");
-      }
+      this.pipeline[this.pipeline.length-1].pipeIn(readInfo.data);
     }
   };
 
@@ -8283,6 +8430,12 @@ CryptoJS.mode.CTR = (function () {
     f.readAsText(bb);
   };
 
+  exports.OTRPipe = OTRPipe;
+  exports.EventToObject = EventToObject;
+  exports.ObjectToString = ObjectToString;
+  exports.BufferDefragmenterStage1 = BufferDefragmenterStage1;
+  exports.StringToBuffer = StringToBuffer;
+  exports.BufferDefragmenter2 = BufferDefragmenter2;
   exports.Socket = Socket;
   exports.SocketServer = SocketServer;
 })(window);
