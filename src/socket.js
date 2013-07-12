@@ -1,4 +1,5 @@
 ;(function(exports){
+  //TODO: let otr fingerprints be accessed from the socket
   var util = {
     inherits: function(ctor, superCtor) {
       ctor.super_ = superCtor;
@@ -1095,6 +1096,7 @@
       if (typeof callback === 'function') callback(new Error('Not connected'));
       return;
     }
+    //TODO: fix error popping up here if you try to send before connecting
     this.pipeline[0].pipeOut.apply(this.pipeline[0], arguments);
   };
 

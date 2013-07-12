@@ -106,6 +106,26 @@ describe('Socket', function() {
         }.bind(this));
       }.bind(this));
     });
+    it('double connect in parallel may fail', function(done) {
+      debug('test 2.75');
+      var first = true;
+      this.client.connect(function(err) {
+        expect(err).to.be(undefined);
+        if(!first){
+          this.client.disconnect();
+          done();
+        }
+        first = false;
+      }.bind(this));
+      this.client.connect(function(err) {
+        expect(err).to.be.a(Error);
+        if(!first){
+          this.client.disconnect();
+          done();
+        }
+        first = false;
+      }.bind(this));
+    });
     it('should know when it\'s connected', function(done) {
       debug('test 3');
       this.client.connect(function(err) {
