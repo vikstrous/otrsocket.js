@@ -4,10 +4,30 @@ function debug(a,b) {
   // console.log(a,b);
 }
 
+var myKey;
+var pipeline = function(){return [new EventToObject(), new ObjectToString(), /*new OTRPipe(myKey),*/ new BufferDefragmenterStage1(), new StringToBuffer(), new BufferDefragmenter2()];};
+
+    chrome.storage.local.get('dsaKey', function(data) {
+      if (data['dsaKey']) {
+        myKey = DSA.parsePrivate(data['dsaKey']);
+        tests();
+      } else {
+        myKey = new DSA();
+        tests();
+        var data2 = {};
+        data2['dsaKey'] = this.myKey.packPrivate();
+        chrome.storage.local.set(data2, function() {
+          console.log(arguments);
+        });
+      }
+    }.bind(this));
+
+function tests(){
+
 describe('SocketServer', function() {
   describe('works', function() {
     it('should be possible to create one', function() {
-      this.server = new SocketServer('127.0.0.1', 8088);
+      this.server = new SocketServer('127.0.0.1', 8088, pipeline, myKey);
       expect(this.server).to.be.a(SocketServer);
     });
     it('should be able to listen', function(done) {
@@ -20,7 +40,7 @@ describe('SocketServer', function() {
     });
     it('should be able to hear a manually triggered connection', function(done) {
       var cb = function(conn) {
-        expect(conn).to.be.an(Socket);
+        expect(conn).to.be.a(Socket);
         done();
       }.bind(this);
       this.server.on('connection', cb);
@@ -34,14 +54,14 @@ describe('SocketServer', function() {
         done();
       }.bind(this);
       this.server.on('connection', cb);
-      var client = new Socket('127.0.0.1', 8088);
+      var client = new Socket('127.0.0.1', 8088, null, null, pipeline);
       client.connect(function(err) {
         expect(err).to.be(undefined);
-        client.send('derp', 'test', function(err) {
+        client.send('derp', 'test'/*, function(err) {
           expect(err).to.be(undefined);
           client.disconnect();
           client.destroy();
-        });
+        }*/);
       });
     });
     it('should stop', function() {
@@ -53,11 +73,11 @@ describe('SocketServer', function() {
 describe('Socket', function() {
   describe('works', function() {
     before(function(done) {
-      this.server = new SocketServer('127.0.0.1', 8089);
+      this.server = new SocketServer('127.0.0.1', 8089, pipeline);
       this.server.listen(done);
     });
     it('should be possible to create one', function() {
-      this.client = new Socket('127.0.0.1', 8089);
+      this.client = new Socket('127.0.0.1', 8089, null, null, pipeline);
     });
     it('should be able to connect and disconnect', function(done) {
       debug('test 1');
@@ -168,9 +188,7 @@ describe('Socket', function() {
         this.client.disconnect();
         this.client.connect(function(err) {
           expect(err).to.be(undefined);
-          this.client.send('derp', 'test', function(err) {
-            expect(err).to.be(undefined);
-          }.bind(this));
+          this.client.send('derp', 'test');
         }.bind(this));
       }.bind(this));
     });
@@ -206,12 +224,8 @@ describe('Socket', function() {
         this.client.disconnect();
         this.client.connect(function(err) {
           expect(err).to.be(undefined);
-          this.client.send('derp', 'test', function(err) {
-            expect(err).to.be(undefined);
-          }.bind(this));
-          this.client.send('derp2', 'test2', function(err) {
-            expect(err).to.be(undefined);
-          }.bind(this));
+          this.client.send('derp', 'test');
+          this.client.send('derp2', 'test2');
         }.bind(this));
       }.bind(this));
     });
@@ -421,3 +435,4 @@ describe('OTRSocket', function() {
 mocha.checkLeaks();
 mocha.globals(['jQuery']);
 mocha.run();
+}
