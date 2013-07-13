@@ -947,7 +947,7 @@
       debug('created server ' + this.socketId);
       if (this.socketId < 0 && typeof cb === 'function') cb(new Error('socketId < 0'));
       debug('listen server');
-      chrome.socket.listen(this.socketId, this.ip, this.port, function(resultCode) {
+      chrome.socket.listen(this.socketId, this.ip, parseInt(this.port), function(resultCode) {
         if (typeof cb === 'function') {
           if (resultCode === 0)
             cb();
@@ -1043,7 +1043,7 @@
       if (!res.connected) {
         debug('connect client to ' + this.ip + ':' + this.port);
         this.initPipeline();
-        chrome.socket.connect(this.socketId, this.ip, this.port, function(resultCode) {
+        chrome.socket.connect(this.socketId, this.ip, parseInt(this.port), function(resultCode) {
           debug(resultCode, 'stage2 - connected');
           debug("client read callback binding");
           chrome.socket.read(this.socketId, null, this._receiveCb.bind(this));
