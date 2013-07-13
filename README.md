@@ -77,7 +77,7 @@ new Socket('127.0.0.1', 8088, pipeline);
 
 Disclaimer
 ---
-Use at your own risk. No guarantees that this library works and/or will not lead to a slow and painful death due the interrogation by three letter agencies. This library in the very early stages. Some APIs may not have sufficient error handling features or adequate disconnection handling.
+Use at your own risk. No guarantees that this library works and/or will not lead to a slow and painful death due the interrogation by three letter agencies. This library is in the very early stages of development. Some APIs may not have sufficient error handling features or adequate disconnection handling.
 
 License
 ---
