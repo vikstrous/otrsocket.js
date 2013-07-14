@@ -44,7 +44,7 @@ describe('SocketServer', function() {
         done();
       }.bind(this);
       this.server.on('connection', cb);
-      this.server.emit('connection', new Socket());
+      this.server.emit('connection', new Socket('127.0.0.1', 1));
       this.server.off('connection', cb);
     });
     it('should be able to hear a connection (live test)', function(done) {

@@ -1,5 +1,6 @@
 ;(function(exports){
   //TODO: let otr fingerprints be accessed from the socket
+
   var util = {
     inherits: function(ctor, superCtor) {
       ctor.super_ = superCtor;
@@ -17,6 +18,447 @@
       return util._errorMap[code] ? util._errorMap[code] : code;
     }
   };
+
+  var EventToObject = function() {
+    this.prev = null;
+    this.next = null;
+    this._messageId = 0;
+    this._messageIdMax = 1000000000000000;//TODO: figure out when it's safe to loop
+    this._messageCbs = [];
+  };
+  // if sending a response, we pass in the messageId
+  // if sending a request, we may specify a callback to wait for a response
+  // or we may fire and forget with no callback
+  EventToObject.prototype.pipeOut = function(event_name, data, cb, requestId) {
+
+    debug("sending:", data);
+    var obj = {
+      type: 'simple',
+      method: event_name,
+      payload: data
+    };
+
+    if (typeof cb === 'function') { // request with callback
+      var messageId = this._messageId;
+      this._messageId = (this._messageId + 1) % this._messageIdMax;
+      this._messageCbs[messageId] = cb;
+      obj['type'] = 'request';
+      obj['messageId'] = messageId;
+    } else if (requestId !== undefined) { // response
+      obj['type'] = 'response';
+      obj['messageId'] = requestId;
+    } else { // simple request
+    }
+
+    this.next.pipeOut(obj);
+  };
+  EventToObject.prototype.pipeIn = function(json){
+    if(json.type == 'simple'){
+      this.prev.pipeIn(json.method, json.payload);
+    } else if (json.type == 'request') {
+      this.prev.pipeIn(json.method, json.payload, json.messageId/*this is converted into a callback by FirstPipe*/);
+    } else if (json.type == 'response') {
+      if(this._messageCbs[json.messageId]) {
+        this._messageCbs[json.messageId](json.payload);
+        delete this._messageCbs[json.messageId];
+      } else {
+        debug(json, "Got reponse with no request");
+      }
+    }
+  };
+
+  var ObjectToString = function() {
+    this.prev = null;
+    this.next = null;
+  };
+  ObjectToString.prototype.pipeOut = function(obj){
+    //TODO: handle errors
+    var str = JSON.stringify(obj);
+    this.next.pipeOut(str);
+  };
+  ObjectToString.prototype.pipeIn = function(str){
+    this.prev.pipeIn(JSON.parse(str));
+  };
+
+  //TODO: there are extra copies however I do this... making this class separate just avoids dealing with the buffer API and makes adding a \n easier
+  var BufferDefragmenterStage1 = function() {
+    this.prev = null;
+    this.next = null;
+  };
+  BufferDefragmenterStage1.prototype.pipeOut = function(str) {
+    this.next.pipeOut(str+'\n');
+  };
+  BufferDefragmenterStage1.prototype.pipeIn = function(str) {
+    this.prev.pipeIn(str); // NOP
+  };
+
+  var OTRPipe = function(myKey) {
+    this.prev = null;
+    this.next = null;
+
+    this.myKey = myKey;
+
+    var options = {
+      fragment_size: 1400,
+      send_interval: 0,
+      priv: this.myKey
+    };
+
+    this.buddy = new OTR(options);
+    this.buddy.REQUIRE_ENCRYPTION = true;
+
+    this.buddy.on('ui', function(msg) {
+      this.prev.pipeIn(msg);
+    }.bind(this));
+
+    this.buddy.on('io', function(msg) {
+      this.next.pipeOut(msg);
+    }.bind(this));
+
+    this.buddy.on('error', function(err) {
+      console.error(err);
+      // this.prev.pipeIn(err);//TODO: error handling
+    }.bind(this));
+  };
+
+  OTRPipe.prototype.pipeIn = function(msg){
+    this.buddy.receiveMsg(msg);
+  };
+  OTRPipe.prototype.pipeOut = function(msg){
+    this.buddy.sendMsg(msg);
+  };
+
+  var StringToBuffer = function() {
+    this.prev = null;
+    this.next = null;
+  };
+  StringToBuffer.prototype.pipeOut = function(str){
+    Socket.prototype._stringToArrayBuffer(str, function(ab){
+      this.next.pipeOut(ab);
+    }.bind(this));
+  };
+  StringToBuffer.prototype.pipeIn = function(ab){
+    Socket.prototype._arrayBufferToString(ab, function(str){
+      this.prev.pipeIn(str);
+    }.bind(this));
+  };
+
+  var BufferDefragmenter2 = function() {
+    this.prev = null;
+    this.next = null;
+  };
+  BufferDefragmenter2.prototype.pipeOut = function(ab) {
+    this.next.pipeOut(ab); // NOP: see BufferDefragmenter1
+  };
+  BufferDefragmenter2.prototype.pipeIn = function(ab) {
+    // TODO: move more logic here from lastPipe
+    this.prev.pipeIn(ab);
+  };
+
+  var FirstPipe = function(socket){
+    this.socket = socket;
+  };
+  var LastPipe = function(socket){
+    this.socket = socket;
+  };
+
+  FirstPipe.prototype.pipeIn = function(){
+    var args = Array.prototype.slice.call(arguments, 0);
+    if(args[2] !== undefined){
+      var id = args[2];
+      args[2] = function(reply) {
+        this.send(args[0], reply, undefined, id);
+      }.bind(this.socket);
+    }
+    this.socket.emit.apply(this.socket, args);
+  };
+  FirstPipe.prototype.pipeOut = function(){
+    this.next.pipeOut.apply(this.next, arguments);
+  };
+
+  LastPipe.prototype.pipeIn = function(data, hacks){
+
+    var socket = this.socket;
+    var buffers = socket._buffers;
+    var index = socket._endOfMsg(data);
+    if (index !== -1) {
+      debug('received message of length '+data.byteLength);
+      debug('found newline at ' + index);
+      var total_length = index;
+      for (var i = 0; i < buffers.length; i++) {
+        total_length += buffers[i].byteLength;
+      }
+      var arr = new ArrayBuffer(total_length);
+      var length_covered = 0;
+      for (i = 0; i < buffers.length; i++) {
+        socket._memcpyWhole(arr, length_covered, buffers[i]);
+        length_covered += buffers[i].byteLength;
+      }
+      socket._memcpy(arr, length_covered, index, data);
+
+      this.prev.pipeIn(arr);
+
+      // if there is more past the end of the message, parse it again
+      socket._buffers = [];
+      if(index !== data.byteLength - 1){
+        this.pipeIn(data.slice(index+1,data.byteLength), true);
+      }
+    } else {
+      buffers.push(data);
+    }
+    debug('read again');
+    if(!hacks){
+      chrome.socket.read(socket.socketId, null, socket._receiveCb.bind(socket));
+    }
+  };
+
+  LastPipe.prototype.writeDone = function(res){
+    if(res.bytesWritten < 0){
+      console.error('TODO: figure out how to deal with errors sending', res.bytesWritten);
+    }
+  };
+
+  LastPipe.prototype.pipeOut = function(msg){
+    if(this.socket.socketId !== undefined){
+      chrome.socket.write(this.socket.socketId, msg, this.writeDone);//Remember it's not bound to this right now
+    } else {
+      console.error('Please connect before sending');
+    }
+  };
+
+  // objects in the pipeline are called in order and the "in" and "out" functions are called when a message is coming in or out
+  //TODO: improve constructor
+  function SocketServer(ip, port, pipeline_fn) {
+    port = parseInt(port, 10);
+    if (isNaN(port) || port < 0) {
+        throw new Error("Port must be a positive integer.");
+    }
+    this.ip = ip;
+    this.port = port;
+    this.pipeline_fn = pipeline_fn;
+  }
+
+  util.inherits(SocketServer, EventEmitter);
+
+  SocketServer.prototype.listen = function(cb) {
+    debug('create server socket');
+    chrome.socket.create('tcp', null, function(createInfo) {
+      this.socketId = createInfo.socketId;
+      debug('created server ' + this.socketId);
+      if (this.socketId < 0 && typeof cb === 'function') cb(new Error('socketId < 0'));
+      debug('listen server');
+      chrome.socket.listen(this.socketId, this.ip, this.port, function(resultCode) {
+        if (typeof cb === 'function') {
+          if (resultCode === 0)
+            cb();
+          else
+            cb(new Error('socket.listen returned ' + util.errorName(resultCode)));
+        }
+        debug('accept server');
+        var accept = function(acceptInfo) {
+          debug(acceptInfo, 'accepted server');
+          debug(this.socketId, 'server socket');
+          if (acceptInfo.resultCode === 0) {
+            chrome.socket.getInfo(acceptInfo.socketId, function(res) {
+              debug(res, "info");
+              debug(res.peerAddress, res.peerPort, "info");
+              if (res.peerAddress) {
+                this.emit('connection', new Socket(res.peerAddress, res.peerPort, this.pipeline_fn, true, acceptInfo.socketId));
+              }
+            }.bind(this));
+            if (this.socketId) // because the server might have been stopped already
+              chrome.socket.accept(this.socketId, accept);
+          } else {
+            debug(acceptInfo, "failed to accept");
+            this._listener_bound = false;
+          }
+        }.bind(this);
+        chrome.socket.accept(this.socketId, accept);
+        this._listener_bound = true;
+      }.bind(this));
+    }.bind(this));
+  };
+
+  SocketServer.prototype.stop = function() {
+    debug('destroy server ' + this.socketId);
+    chrome.socket.destroy(this.socketId);
+    // this.removeEvent('connection');
+    delete this.socketId;
+  };
+
+  //TODO: improve constructor
+  var Socket = function(ip, port, pipeline_fn, server, socketId) {
+    port = parseInt(port, 10);
+    if (isNaN(port) || port < 0) {
+        throw new Error("Port must be a positive integer.");
+    }
+    this.ip = ip;
+    this.port = port;
+    this.pipeline_fn = pipeline_fn;
+
+    this._buffers = [];
+    this._server = server;
+    if (server) {
+      this.socketId = socketId;
+      this.initPipeline();
+      debug('read server');
+      chrome.socket.read(this.socketId, null, this._receiveCb.bind(this));
+    }
+
+    debug('new socket arguments', arguments);
+    debug('new socket this', this);
+  };
+
+  util.inherits(Socket, EventEmitter);
+
+  Socket.prototype.initPipeline = function(){
+    // set up the pipeline
+    var pipeline;
+    if(typeof this.pipeline_fn === 'function') {
+      pipeline = this.pipeline_fn();
+    } else {
+      // default pipeline
+      pipeline = [new EventToObject(), new ObjectToString(), new BufferDefragmenterStage1(), new StringToBuffer(), new BufferDefragmenter2()];
+    }
+    pipeline.unshift(new FirstPipe(this));
+    pipeline.push(new LastPipe(this));
+    pipeline[0].next = pipeline[1];
+    for (var p = 1; p < pipeline.length - 1; p++) {
+      pipeline[p].next = pipeline[p+1];
+      pipeline[p].prev = pipeline[p-1];
+    }
+    pipeline[pipeline.length-1].prev = pipeline[pipeline.length-2];
+    this.pipeline = pipeline;
+  };
+
+  Socket.prototype.info = function(cb) {
+    if (this.socketId) {
+      chrome.socket.getInfo(this.socketId, function(res) {
+        if (typeof cb === 'function') cb(undefined, res);
+      });
+    } else {
+      if (typeof cb === 'function') cb('No socket'); // TODO: better error messages?
+    }
+  };
+
+  Socket.prototype._connectStage2 = function(cb) {
+    this.info(function(err, res) {
+      if (!res.connected) {
+        debug('connect client to ' + this.ip + ':' + this.port);
+        this.initPipeline();
+        chrome.socket.connect(this.socketId, this.ip, this.port, function(resultCode) {
+          debug(resultCode, 'stage2 - connected');
+          debug("client read callback binding");
+          chrome.socket.read(this.socketId, null, this._receiveCb.bind(this));
+          if (typeof cb === 'function') {
+            if (resultCode !== 0) {
+              cb(new Error('socket.connect returned ' + util.errorName(resultCode)));
+            } else {
+              cb();
+            }
+          }
+        }.bind(this));
+      } else {
+        cb();
+      }
+    }.bind(this));
+  };
+
+  Socket.prototype.connect = function(cb) {
+    if (this.socketId >= 0) {
+      debug('connect an existing socket');
+      this._connectStage2(cb);
+    } else {
+      debug('create client');
+      chrome.socket.create('tcp', null, function(createInfo) {
+        this.socketId = createInfo.socketId;
+        if (this.socketId < 0 && typeof cb === 'function') cb(new Error('socketId < 0'));
+        else this._connectStage2(cb);
+      }.bind(this));
+    }
+  };
+
+  Socket.prototype.destroy = function() {
+    if (this.socketId !== undefined) {
+      debug('destroy ' + (this._server ? 'server' : 'client'));
+      chrome.socket.destroy(this.socketId);
+      delete this.socketId;
+    }
+  };
+
+  Socket.prototype.disconnect = function() {
+    if (this.socketId !== undefined) {
+      debug("disconnect " + (this._server ? 'server' : 'client'));
+      chrome.socket.disconnect(this.socketId);
+      this.destroy(); // TODO: Remove this when this is fixed: https://code.google.com/p/chromium/issues/detail?id=251977&thanks=251977&ts=1371681444
+    }
+  };
+
+  Socket.prototype.send = function(method, obj, callback, messageId) {
+    if (this.socketId === undefined) {
+      if (typeof callback === 'function') callback(new Error('Not connected'));
+      return;
+    }
+    //TODO: fix error popping up here if you try to send before connecting
+    this.pipeline[0].pipeOut.apply(this.pipeline[0], arguments);
+  };
+
+  Socket.prototype._receiveCb = function(readInfo) {
+    debug(readInfo, "receive " + (this._server ? 'server' : 'client'));
+    if (readInfo.resultCode === -1) {
+      debug("BINDING TOO MUCH");
+      return;
+    }
+    if (readInfo.resultCode <= 0) {
+      debug(this.ip, this.port, "info");
+      debug(util.errorName(readInfo.resultCode), "error");
+      //TODO: deal with negative result codes more specifically
+      this.disconnect();
+    } else {
+      this.pipeline[this.pipeline.length-1].pipeIn(readInfo.data);
+    }
+  };
+
+  Socket.prototype._memcpy = function(dst, dstOffset, end, src) {
+    var dstU8 = new Uint8Array(dst, dstOffset, end);
+    var srcU8 = new Uint8Array(src, 0, end);
+    dstU8.set(srcU8);
+  };
+
+  Socket.prototype._memcpyWhole = function(dst, dstOffset, src) {
+    var dstU8 = new Uint8Array(dst, dstOffset, src.byteLength);
+    var srcU8 = new Uint8Array(src, 0, src.byteLength);
+    dstU8.set(srcU8);
+  };
+
+  Socket.prototype._endOfMsg = function(buff) {
+    var buff8 = new Uint8Array(buff);
+    for (var i = 0; i < buff.byteLength; i++) {
+      if (buff8[i] == 10) {
+        return i; // '\n'
+      }
+    }
+    return -1;
+  };
+
+  Socket.prototype._stringToArrayBuffer = function(str, callback) {
+    var bb = new Blob([str]);
+    var f = new FileReader();
+    f.onload = function(e) {
+      callback(e.target.result);
+    }.bind(this);
+    f.readAsArrayBuffer(bb);
+  };
+
+  Socket.prototype._arrayBufferToString = function(buf, callback) {
+    var bb = new Blob([new Uint8Array(buf)]);
+    var f = new FileReader();
+    f.onload = function(e) {
+      callback(e.target.result);
+    }.bind(this);
+    f.readAsText(bb);
+  };
+
 
   function debug(a,b) {
     // console.log(a,b);
@@ -721,440 +1163,6 @@
     // Failed to sort addresses according to RFC3484.
     NET_ERROR('DNS_SORT_ERROR', -806);
   })();
-
-
-  var EventToObject = function() {
-    this.prev = null;
-    this.next = null;
-    this._messageId = 0;
-    this._messageIdMax = 1000000000000000;//TODO: figure out when it's safe to loop
-    this._messageCbs = [];
-  };
-  // if sending a response, we pass in the messageId
-  // if sending a request, we may specify a callback to wait for a response
-  // or we may fire and forget with no callback
-  EventToObject.prototype.pipeOut = function(event_name, data, cb, requestId) {
-
-    debug("sending:", data);
-    var obj = {
-      type: 'simple',
-      method: event_name,
-      payload: data
-    };
-
-    if (typeof cb === 'function') { // request with callback
-      var messageId = this._messageId;
-      this._messageId = (this._messageId + 1) % this._messageIdMax;
-      this._messageCbs[messageId] = cb;
-      obj['type'] = 'request';
-      obj['messageId'] = messageId;
-    } else if (requestId !== undefined) { // response
-      obj['type'] = 'response';
-      obj['messageId'] = requestId;
-    } else { // simple request
-    }
-
-    this.next.pipeOut(obj);
-  };
-  EventToObject.prototype.pipeIn = function(json){
-    if(json.type == 'simple'){
-      this.prev.pipeIn(json.method, json.payload);
-    } else if (json.type == 'request') {
-      this.prev.pipeIn(json.method, json.payload, json.messageId/*this is converted into a callback by FirstPipe*/);
-    } else if (json.type == 'response') {
-      if(this._messageCbs[json.messageId]) {
-        this._messageCbs[json.messageId](json.payload);
-        delete this._messageCbs[json.messageId];
-      } else {
-        debug(json, "Got reponse with no request");
-      }
-    }
-  };
-
-  var ObjectToString = function() {
-    this.prev = null;
-    this.next = null;
-  };
-  ObjectToString.prototype.pipeOut = function(obj){
-    //TODO: handle errors
-    var str = JSON.stringify(obj);
-    this.next.pipeOut(str);
-  };
-  ObjectToString.prototype.pipeIn = function(str){
-    this.prev.pipeIn(JSON.parse(str));
-  };
-
-  //TODO: there are extra copies however I do this... making this class separate just avoids dealing with the buffer API and makes adding a \n easier
-  var BufferDefragmenterStage1 = function() {
-    this.prev = null;
-    this.next = null;
-  };
-  BufferDefragmenterStage1.prototype.pipeOut = function(str) {
-    this.next.pipeOut(str+'\n');
-  };
-  BufferDefragmenterStage1.prototype.pipeIn = function(str) {
-    this.prev.pipeIn(str); // NOP
-  };
-
-  var OTRPipe = function(myKey) {
-    this.prev = null;
-    this.next = null;
-
-    this.myKey = myKey;
-
-    var options = {
-      fragment_size: 1400,
-      send_interval: 0,
-      priv: this.myKey
-    };
-
-    this.buddy = new OTR(options);
-    this.buddy.REQUIRE_ENCRYPTION = true;
-
-    this.buddy.on('ui', function(msg) {
-      this.prev.pipeIn(msg);
-    }.bind(this));
-
-    this.buddy.on('io', function(msg) {
-      this.next.pipeOut(msg);
-    }.bind(this));
-
-    this.buddy.on('error', function(err) {
-      console.error(err);
-      // this.prev.pipeIn(err);//TODO: error handling
-    }.bind(this));
-  };
-
-  OTRPipe.prototype.pipeIn = function(msg){
-    this.buddy.receiveMsg(msg);
-  };
-  OTRPipe.prototype.pipeOut = function(msg){
-    this.buddy.sendMsg(msg);
-  };
-
-  var StringToBuffer = function() {
-    this.prev = null;
-    this.next = null;
-  };
-  StringToBuffer.prototype.pipeOut = function(str){
-    Socket.prototype._stringToArrayBuffer(str, function(ab){
-      this.next.pipeOut(ab);
-    }.bind(this));
-  };
-  StringToBuffer.prototype.pipeIn = function(ab){
-    Socket.prototype._arrayBufferToString(ab, function(str){
-      this.prev.pipeIn(str);
-    }.bind(this));
-  };
-
-  var BufferDefragmenter2 = function() {
-    this.prev = null;
-    this.next = null;
-  };
-  BufferDefragmenter2.prototype.pipeOut = function(ab) {
-    this.next.pipeOut(ab); // NOP: see BufferDefragmenter1
-  };
-  BufferDefragmenter2.prototype.pipeIn = function(ab) {
-    // TODO: move more logic here from lastPipe
-    this.prev.pipeIn(ab);
-  };
-
-  var FirstPipe = function(socket){
-    this.socket = socket;
-  };
-  var LastPipe = function(socket){
-    this.socket = socket;
-  };
-
-  FirstPipe.prototype.pipeIn = function(){
-    var args = Array.prototype.slice.call(arguments, 0);
-    if(args[2] !== undefined){
-      var id = args[2];
-      args[2] = function(reply) {
-        this.send(args[0], reply, undefined, id);
-      }.bind(this.socket);
-    }
-    this.socket.emit.apply(this.socket, args);
-  };
-  FirstPipe.prototype.pipeOut = function(){
-    this.next.pipeOut.apply(this.next, arguments);
-  };
-
-  LastPipe.prototype.pipeIn = function(data, hacks){
-
-    var socket = this.socket;
-    var buffers = socket._buffers;
-    var index = socket._endOfMsg(data);
-    if (index !== -1) {
-      debug('received message of length '+data.byteLength);
-      debug('found newline at ' + index);
-      var total_length = index;
-      for (var i = 0; i < buffers.length; i++) {
-        total_length += buffers[i].byteLength;
-      }
-      var arr = new ArrayBuffer(total_length);
-      var length_covered = 0;
-      for (i = 0; i < buffers.length; i++) {
-        socket._memcpyWhole(arr, length_covered, buffers[i]);
-        length_covered += buffers[i].byteLength;
-      }
-      socket._memcpy(arr, length_covered, index, data);
-
-      this.prev.pipeIn(arr);
-
-      // if there is more past the end of the message, parse it again
-      socket._buffers = [];
-      if(index !== data.byteLength - 1){
-        this.pipeIn(data.slice(index+1,data.byteLength), true);
-      }
-    } else {
-      buffers.push(data);
-    }
-    debug('read again');
-    if(!hacks){
-      chrome.socket.read(socket.socketId, null, socket._receiveCb.bind(socket));
-    }
-  };
-
-  LastPipe.prototype.writeDone = function(res){
-    if(res.bytesWritten < 0){
-      console.error('TODO: figure out how to deal with errors sending', res.bytesWritten);
-    }
-  };
-
-  LastPipe.prototype.pipeOut = function(msg){
-    if(this.socket.socketId !== undefined){
-      chrome.socket.write(this.socket.socketId, msg, this.writeDone);//Remember it's not bound to this right now
-    } else {
-      console.error('Please connect before sending');
-    }
-  };
-
-  // objects in the pipeline are called in order and the "in" and "out" functions are called when a message is coming in or out
-  //TODO: improve constructor
-  function SocketServer(ip, port, pipeline_fn) {
-    this.ip = ip;
-    this.port = port;
-    this.pipeline_fn = pipeline_fn;
-  }
-
-  util.inherits(SocketServer, EventEmitter);
-
-  SocketServer.prototype.listen = function(cb) {
-    debug('create server socket');
-    chrome.socket.create('tcp', null, function(createInfo) {
-      this.socketId = createInfo.socketId;
-      debug('created server ' + this.socketId);
-      if (this.socketId < 0 && typeof cb === 'function') cb(new Error('socketId < 0'));
-      debug('listen server');
-      chrome.socket.listen(this.socketId, this.ip, parseInt(this.port), function(resultCode) {
-        if (typeof cb === 'function') {
-          if (resultCode === 0)
-            cb();
-          else
-            cb(new Error('socket.listen returned ' + util.errorName(resultCode)));
-        }
-        debug('accept server');
-        var accept = function(acceptInfo) {
-          debug(acceptInfo, 'accepted server');
-          debug(this.socketId, 'server socket');
-          if (acceptInfo.resultCode === 0) {
-            chrome.socket.getInfo(acceptInfo.socketId, function(res) {
-              debug(res, "info");
-              debug(res.peerAddress, res.peerPort, "info");
-              if (res.peerAddress) {
-                this.emit('connection', new Socket(res.peerAddress, res.peerPort, this.pipeline_fn, true, acceptInfo.socketId));
-              }
-            }.bind(this));
-            if (this.socketId) // because the server might have been stopped already
-              chrome.socket.accept(this.socketId, accept);
-          } else {
-            debug(acceptInfo, "failed to accept");
-            this._listener_bound = false;
-          }
-        }.bind(this);
-        chrome.socket.accept(this.socketId, accept);
-        this._listener_bound = true;
-      }.bind(this));
-    }.bind(this));
-  };
-
-  SocketServer.prototype.stop = function() {
-    debug('destroy server ' + this.socketId);
-    chrome.socket.destroy(this.socketId);
-    // this.removeEvent('connection');
-    delete this.socketId;
-  };
-
-  //TODO: improve constructor
-  var Socket = function(ip, port, pipeline_fn, server, socketId) {
-    this.ip = ip;
-    this.port = port;
-
-    this.pipeline_fn = pipeline_fn;
-
-    this._buffers = [];
-    this._server = server;
-    if (server) {
-      this.socketId = socketId;
-      this.initPipeline();
-      debug('read server');
-      chrome.socket.read(this.socketId, null, this._receiveCb.bind(this));
-    }
-
-    debug('new socket arguments', arguments);
-    debug('new socket this', this);
-  };
-
-  util.inherits(Socket, EventEmitter);
-
-  Socket.prototype.initPipeline = function(){
-    // set up the pipeline
-    var pipeline;
-    if(typeof this.pipeline_fn === 'function') {
-      pipeline = this.pipeline_fn();
-    } else {
-      // default pipeline
-      pipeline = [new EventToObject(), new ObjectToString(), new BufferDefragmenterStage1(), new StringToBuffer(), new BufferDefragmenter2()];
-    }
-    pipeline.unshift(new FirstPipe(this));
-    pipeline.push(new LastPipe(this));
-    pipeline[0].next = pipeline[1];
-    for (var p = 1; p < pipeline.length - 1; p++) {
-      pipeline[p].next = pipeline[p+1];
-      pipeline[p].prev = pipeline[p-1];
-    }
-    pipeline[pipeline.length-1].prev = pipeline[pipeline.length-2];
-    this.pipeline = pipeline;
-  };
-
-  Socket.prototype.info = function(cb) {
-    if (this.socketId) {
-      chrome.socket.getInfo(this.socketId, function(res) {
-        if (typeof cb === 'function') cb(undefined, res);
-      });
-    } else {
-      if (typeof cb === 'function') cb('No socket'); // TODO: better error messages?
-    }
-  };
-
-  Socket.prototype._connectStage2 = function(cb) {
-    this.info(function(err, res) {
-      if (!res.connected) {
-        debug('connect client to ' + this.ip + ':' + this.port);
-        this.initPipeline();
-        chrome.socket.connect(this.socketId, this.ip, parseInt(this.port), function(resultCode) {
-          debug(resultCode, 'stage2 - connected');
-          debug("client read callback binding");
-          chrome.socket.read(this.socketId, null, this._receiveCb.bind(this));
-          if (typeof cb === 'function') {
-            if (resultCode !== 0) {
-              cb(new Error('socket.connect returned ' + util.errorName(resultCode)));
-            } else {
-              cb();
-            }
-          }
-        }.bind(this));
-      } else {
-        cb();
-      }
-    }.bind(this));
-  };
-
-  Socket.prototype.connect = function(cb) {
-    if (this.socketId >= 0) {
-      debug('connect an existing socket');
-      this._connectStage2(cb);
-    } else {
-      debug('create client');
-      chrome.socket.create('tcp', null, function(createInfo) {
-        this.socketId = createInfo.socketId;
-        if (this.socketId < 0 && typeof cb === 'function') cb(new Error('socketId < 0'));
-        else this._connectStage2(cb);
-      }.bind(this));
-    }
-  };
-
-  Socket.prototype.destroy = function() {
-    if (this.socketId !== undefined) {
-      debug('destroy ' + (this._server ? 'server' : 'client'));
-      chrome.socket.destroy(this.socketId);
-      delete this.socketId;
-    }
-  };
-
-  Socket.prototype.disconnect = function() {
-    if (this.socketId !== undefined) {
-      debug("disconnect " + (this._server ? 'server' : 'client'));
-      chrome.socket.disconnect(this.socketId);
-      this.destroy(); // TODO: Remove this when this is fixed: https://code.google.com/p/chromium/issues/detail?id=251977&thanks=251977&ts=1371681444
-    }
-  };
-
-  Socket.prototype.send = function(method, obj, callback, messageId) {
-    if (this.socketId === undefined) {
-      if (typeof callback === 'function') callback(new Error('Not connected'));
-      return;
-    }
-    //TODO: fix error popping up here if you try to send before connecting
-    this.pipeline[0].pipeOut.apply(this.pipeline[0], arguments);
-  };
-
-  Socket.prototype._receiveCb = function(readInfo) {
-    debug(readInfo, "receive " + (this._server ? 'server' : 'client'));
-    if (readInfo.resultCode === -1) {
-      debug("BINDING TOO MUCH");
-      return;
-    }
-    if (readInfo.resultCode <= 0) {
-      debug(this.ip, this.port, "info");
-      debug(util.errorName(readInfo.resultCode), "error");
-      //TODO: deal with negative result codes more specifically
-      this.disconnect();
-    } else {
-      this.pipeline[this.pipeline.length-1].pipeIn(readInfo.data);
-    }
-  };
-
-  Socket.prototype._memcpy = function(dst, dstOffset, end, src) {
-    var dstU8 = new Uint8Array(dst, dstOffset, end);
-    var srcU8 = new Uint8Array(src, 0, end);
-    dstU8.set(srcU8);
-  };
-
-  Socket.prototype._memcpyWhole = function(dst, dstOffset, src) {
-    var dstU8 = new Uint8Array(dst, dstOffset, src.byteLength);
-    var srcU8 = new Uint8Array(src, 0, src.byteLength);
-    dstU8.set(srcU8);
-  };
-
-  Socket.prototype._endOfMsg = function(buff) {
-    var buff8 = new Uint8Array(buff);
-    for (var i = 0; i < buff.byteLength; i++) {
-      if (buff8[i] == 10) {
-        return i; // '\n'
-      }
-    }
-    return -1;
-  };
-
-  Socket.prototype._stringToArrayBuffer = function(str, callback) {
-    var bb = new Blob([str]);
-    var f = new FileReader();
-    f.onload = function(e) {
-      callback(e.target.result);
-    }.bind(this);
-    f.readAsArrayBuffer(bb);
-  };
-
-  Socket.prototype._arrayBufferToString = function(buf, callback) {
-    var bb = new Blob([new Uint8Array(buf)]);
-    var f = new FileReader();
-    f.onload = function(e) {
-      callback(e.target.result);
-    }.bind(this);
-    f.readAsText(bb);
-  };
 
   exports.OTRPipe = OTRPipe;
   exports.EventToObject = EventToObject;
