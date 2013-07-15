@@ -349,11 +349,11 @@
         chrome.socket.connect(this.socketId, this.ip, this.port, function(resultCode) {
           debug(resultCode, 'stage2 - connected');
           debug("client read callback binding");
-          chrome.socket.read(this.socketId, null, this._receiveCb.bind(this));
           if (typeof cb === 'function') {
             if (resultCode !== 0) {
               cb(new Error('socket.connect returned ' + util.errorName(resultCode)));
             } else {
+              chrome.socket.read(this.socketId, null, this._receiveCb.bind(this));
               cb();
             }
           }
