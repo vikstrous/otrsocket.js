@@ -80,6 +80,15 @@ Disclaimer
 ---
 Use at your own risk. No guarantees that this library works and/or will not lead to a slow and painful death due the interrogation by three letter agencies. This library is in the very early stages of development. Some APIs may not have sufficient error handling features or adequate disconnection handling.
 
+
+Warranty
+---
+This program is free software. It comes without any warranty, to
+the extent permitted by applicable law. You can redistribute it
+and/or modify it under the terms of the Do What The Fuck You Want
+To Public License, Version 2, as published by Sam Hocevar. See
+http://www.wtfpl.net/ for more details.
+
 Copyright
 ---
 Copyright © 2000 Viktor Stanchev <me@viktorstanchev.com>
