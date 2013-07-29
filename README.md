@@ -46,12 +46,13 @@ Socket
 
 ```javascript
 var client = new Socket('127.0.0.1', 8080);
-client.connect();
-client.send('msg', 'ping', function(data) {
-  if (data == 'pong') {
-    console.log('Got pong!');
-  }
-});
+client.connect(function(){
+  client.send('msg', 'ping', function(data) {
+    if (data == 'pong') {
+      console.log('Got pong!');
+    }
+  });
+}});
 ```
 
 Encrypted Sockets
